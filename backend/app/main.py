@@ -7,7 +7,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-app=FastAPI(title='ELEXORA 2 API',version='0.5.0')
+app=FastAPI(title='ELEXORA 2 API',version='0.5.1')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 REFERENCE_FEEDERS=['INCOMER-1','INCOMER-2','MOT01-MOT03,MOT05,MOT06','MOT04_VCB','IC0G_VCU','TR','BPT','LPT','CAB01','CAB02']
@@ -16,7 +16,6 @@ MASTER={'CT2C-1A':'CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)','PT':'POTE
 def pdf_pages(data,filename):
     if not filename.lower().endswith('.pdf'): return []
     return fitz.open(stream=data,filetype='pdf')
-
 def pdf_text(data,filename): return '\n'.join(p.get_text('text') for p in pdf_pages(data,filename))
 def first(pattern,text,default=''):
     m=re.search(pattern,text,re.I|re.M); return m.group(1).strip() if m else default
@@ -24,10 +23,10 @@ def norm_voltage(v):
     v=(v or '').upper().replace('KV','').strip(); return v if v in {'6.6','11','33'} else ''
 def transform_word(page,w):
     pts=[fitz.Point(w[0],w[1])*page.rotation_matrix,fitz.Point(w[2],w[3])*page.rotation_matrix]
-    return {'x0':min(pts[0].x,pts[1].x),'y0':min(pts[0].y,pts[1].y),'x1':max(pts[0].x,pts[1].x),'y1':max(pts[0].y,pts[1].y),'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':w[4]}
+    return {'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':w[4]}
 def page_words(page): return [transform_word(page,w) for w in page.get_text('words') if w[4].strip()]
-def words_text(words): return ' '.join(w['text'] for w in sorted(words,key=lambda z:(round(z['y'],1),z['x'])))
 def clean(s): return re.sub(r'\s+',' ',s).strip(' -')
+def words_text(words): return ' '.join(w['text'] for w in sorted(words,key=lambda z:(round(z['y'],1),z['x'])))
 def text_in_band(words,xmin,xmax,ymin,ymax): return clean(words_text([w for w in words if xmin<=w['x']<xmax and ymin<=w['y']<ymax]))
 def rows_by_designation(words,xmin,xmax,ymin,ymax):
     vals=[]
@@ -61,40 +60,39 @@ def extract_fixed_table(data,filename):
     pages=pdf_pages(data,filename); records=[]; feeders=[]; warnings=[]
     for page_no,page in enumerate(pages,1):
         words=page_words(page)
-        if page_no==1:
-            feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465)
-            if feeder_type: feeders.append({'name':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring})
-            left=rows_by_designation(words,275,320,490,790)
-            for i,(y,des) in enumerate(left):
-                next_y=left[i+1][0] if i+1<len(left) else 790; lo=max(490,y-9); hi=min(790,(y+next_y)/2)
-                desc=text_in_band(words,50,275,lo,hi); details=text_in_band(words,320,615,lo,hi)
+        if page_no!=1: continue
+        feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465)
+        if feeder_type: feeders.append({'name':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring})
+        left=rows_by_designation(words,275,320,490,790)
+        for i,(y,des) in enumerate(left):
+            next_y=left[i+1][0] if i+1<len(left) else 790; lo=max(490,y-9); hi=min(790,(y+next_y)/2); desc=text_in_band(words,50,275,lo,hi); details=text_in_band(words,320,615,lo,hi)
+            if desc or details: records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
+        for ymin,ymax in [(35,345),(350,725)]:
+            right=rows_by_designation(words,840,880,ymin,ymax)
+            for i,(y,des) in enumerate(right):
+                next_y=right[i+1][0] if i+1<len(right) else ymax; lo=max(ymin,y-8); hi=min(ymax,(y+next_y)/2); desc=text_in_band(words,630,835,lo,hi); details=text_in_band(words,890,1175,lo,hi)
                 if desc or details: records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
-            for ymin,ymax in [(35,345),(350,725)]:
-                right=rows_by_designation(words,840,880,ymin,ymax)
-                for i,(y,des) in enumerate(right):
-                    next_y=right[i+1][0] if i+1<len(right) else ymax; lo=max(ymin,y-8); hi=min(ymax,(y+next_y)/2)
-                    desc=text_in_band(words,630,835,lo,hi); details=text_in_band(words,890,1175,lo,hi)
-                    if desc or details: records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
     return feeders,records,warnings
 def header(msld,dis,client,sales,drawing,esd,wo,prep,voltage):
     s=msld+'\n'+dis
     return {'client':client.strip() or first(r'Client\s*:?\s*([^\n]+)',s),'sales_ref':sales.strip() or first(r'Sales\s*Ref\.?\s*:?\s*([^\n]+)',s),'drawing':drawing.strip() or first(r'Drg\.?\s*No\.?\s*:?\s*([^\n]+)',s),'esd':esd.strip() or first(r'ESD\s*No\.?\s*:?\s*([^\n]+)',s),'wo':wo.strip() or first(r'W\.?O\.?\s*No\.?\s*:?\s*([^\n]+)',s),'prep_by':prep.strip(),'voltage':norm_voltage(voltage)}
 def build_rows(feeder_info,records):
-    names=[f['name'] for f in feeder_info if f.get('name')] or REFERENCE_FEEDERS[:]; rows=[]
+    # BOM FORMAT has a fixed grouped-feeder header. Never shrink the output schema to the feeder count found on one MSLD page.
+    names=REFERENCE_FEEDERS[:]; rows=[]
+    extracted_name=(feeder_info[0].get('name','').upper() if feeder_info else '')
+    target='INCOMER-1' if extracted_name=='INCOMER' else None
     for i,r in enumerate(records,1):
         spec=r['description']+(' | '+r['details'] if r['details'] else ''); fq={n:'' for n in names}
-        if feeder_info and feeder_info[0].get('name'): fq[feeder_info[0]['name']]=r['quantity'] if r['quantity'] is not None else ''
+        if target: fq[target]=r['quantity'] if r['quantity'] is not None else ''
         rows.append({'sr':i,'specification':clean(spec),'designation':r['designation'],'total':r['quantity'],'eqpt_qty':r['quantity'],'feeder_qty':fq,'mpd':'','amd':'','master_code':r['master_code']})
     return names,rows
 def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
     msld_text=pdf_text(msld_bytes,msld_name); dis_text=pdf_text(dis_bytes,dis_name); same=(re.sub(r'\s+','',msld_text)==re.sub(r'\s+','',dis_text)); feeder_info,records,warnings=extract_fixed_table(msld_bytes,msld_name)
     if same: warnings.append('The same PDF was supplied in both MSLD and DIS slots. It was processed once to prevent duplicate BOM rows.')
     elif dis_text.strip(): warnings.append('DIS supplied: used as validation source; MSLD remains the primary fixed-template equipment source.')
-    names,rows=build_rows(feeder_info,records); h=header(msld_text,dis_text,client,sales,drawing,esd,wo,prep,voltage)
-    pages=pdf_pages(msld_bytes,msld_name)
+    names,rows=build_rows(feeder_info,records); h=header(msld_text,dis_text,client,sales,drawing,esd,wo,prep,voltage); pages=pdf_pages(msld_bytes,msld_name)
     if pages:
-        pw=page_words(pages[0])
-        def fv(a,b,c,d): return text_in_band(pw,a,b,c,d)
+        pw=page_words(pages[0]); fv=lambda a,b,c,d:text_in_band(pw,a,b,c,d)
         h['client']=client.strip() or fv(345,440,775,795) or h['client']; h['sales_ref']=sales.strip() or fv(905,960,782,793) or h['sales_ref']; h['drawing']=drawing.strip() or fv(980,1110,805,830) or h['drawing']; h['wo']=wo.strip() or fv(900,960,793,805) or h['wo']
     source=msld_text+'\n'+dis_text; q=first(r'\bQty\.\s*:\s*(\d+x?)\b',source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b',source); desc=f"{norm_voltage(voltage)}kV SWITCHBOARD" if norm_voltage(voltage) else 'SWITCHBOARD'
     if not rows:warnings.append('No equipment rows were confidently extracted from the fixed MSLD table.')
