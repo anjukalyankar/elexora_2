@@ -7,261 +7,142 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-app = FastAPI(title="ELEXORA 2 API", version="0.3.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app=FastAPI(title='ELEXORA 2 API',version='0.4.0')
+app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
-# Demo Master Data. Production Master Data will be replaceable by XLSX/CSV in the next module.
-MASTER = [
-    {"code": "CT2C-1A", "aliases": ["CURRENT TRANSFORMER", "CT"], "description": "CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)"},
-    {"code": "PT", "aliases": ["POTENTIAL TRANSFORMER"], "description": "POTENTIAL TRANSFORMER (DRAWOUT TYPE)"},
-    {"code": "7SJ6611", "aliases": ["NUM. PROT. RELAY", "NUMERICAL PROTECTION RELAY"], "description": "NUMERICAL PROTECTION RELAY"},
-    {"code": "EM6400NG", "aliases": ["DIGITAL MF METER"], "description": "DIGITAL MF METER"},
-    {"code": "AMMETER", "aliases": ["DIGITAL AMMETER"], "description": "DIGITAL AMMETER WITH BUILT IN SELECTOR SWITCH"},
-    {"code": "VOLTMETER", "aliases": ["DIGITAL VOLTMETER"], "description": "DIGITAL VOLTMETER WITH BUILT IN SELECTOR SWITCH"},
-    {"code": "MCB", "aliases": ["MCB FOR", "MINIATURE CIRCUIT BREAKER"], "description": "MINIATURE CIRCUIT BREAKER"},
-]
+# Fixed BOM FORMAT.pdf feeder headers. These are template columns, not inferred data.
+FEEDERS=['INCOMER-1','INCOMER-2','MOT01-MOT03,MOT05,MOT06','MOT04_VCB','IC0G_VCU','TR','BPT','LPT','CAB01','CAB02']
+MASTER={'CT2C-1A':'CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)','PT':'POTENTIAL TRANSFORMER (DRAWOUT TYPE)','7SJ6611':'NUMERICAL PROTECTION RELAY','EM6400NG':'DIGITAL MF METER','AMMETER':'DIGITAL AMMETER WITH BUILT IN SEL. S/W','VOLTMETER':'DIGITAL VOLTMETER WITH BUILT IN SEL. S/W','MCB':'MINIATURE CIRCUIT BREAKER'}
 
+def pdf_text(data,filename):
+    if not filename.lower().endswith('.pdf'): return ''
+    doc=fitz.open(stream=data,filetype='pdf')
+    return '\n'.join(p.get_text('text') for p in doc)
 
-def pdf_text(data: bytes, filename: str) -> str:
-    if not filename.lower().endswith(".pdf"):
-        return ""
-    doc = fitz.open(stream=data, filetype="pdf")
-    return "\n".join(page.get_text("text") for page in doc)
+def first(pattern,text,default=''):
+    m=re.search(pattern,text,re.I|re.M); return m.group(1).strip() if m else default
 
+def norm_voltage(v):
+    v=(v or '').upper().replace('KV','').strip(); return v if v in {'6.6','11','33'} else ''
 
-def first(pattern, text, default=""):
-    m = re.search(pattern, text, re.I | re.M)
-    return m.group(1).strip() if m else default
+def header(msld,dis,client,sales,drawing,esd,wo,prep,voltage):
+    s=msld+'\n'+dis
+    return {'client':client.strip() or first(r'Client\s*:\s*([^\n]+)',s),'sales_ref':sales.strip() or first(r'Sales\s*(?:Ref(?:erence)?|Order)\s*:?\s*([^\n]+)',s),'drawing':drawing.strip() or first(r'Drg\.?\s*No\.?\s*:?\s*([^\n]+)',s),'esd':esd.strip() or first(r'ESD\s*No\.?\s*:?\s*([^\n]+)',s),'wo':wo.strip() or first(r'W\.?O\.?\s*No\.?\s*:?\s*([^\n]+)',s),'prep_by':prep.strip(),'voltage':norm_voltage(voltage)}
 
+def qty_from_block(block):
+    m=re.search(r'\b(?:QTY\.?|QUANTITY|NOS?\.?)\s*:?\s*(\d+)\b',block,re.I); return int(m.group(1)) if m else None
 
-def voltage_normalize(value: str) -> str:
-    value = (value or "").upper().replace("KV", "").strip()
-    return value if value in {"6.6", "11", "33"} else ""
+def designation_before(text,position):
+    # Fixed MSLD has FEEDER DESIGNATION / DESIG. fields. Search only the local equipment block.
+    left=text[max(0,position-250):position]
+    pats=[r'\bT\d+(?:\s*[-/]\s*T\d+)?\b',r'\bE\d{1,3}\b',r'\bF\d{1,3}(?:-F\d{1,3})?\b',r'\bP\d{1,3}\b',r'\bK\d{1,3}\b',r'\bS\d{1,3}\b',r'\bX\d{1,3}\b']
+    out=[]
+    for p in pats:
+        for x in re.findall(p,left,re.I):
+            x=re.sub(r'\s+','',x.upper())
+            if x not in out: out.append(x)
+    return ', '.join(out[-3:])
 
+def structured_spec(block):
+    b=re.sub(r'\s+',' ',block).strip()
+    # Preserve engineering wording; only remove drawing-control noise.
+    b=re.sub(r'\b(?:QTY\.?|QUANTITY|NOS?\.?)\s*:?\s*\d+\b','',b,flags=re.I)
+    return b.strip(' -')
 
-def extract_header(msld: str, dis: str, client: str, sales_ref: str, drawing: str, esd: str, wo: str, prep: str, voltage: str):
-    s = msld + "\n" + dis
-    return {
-        "client": client.strip() or first(r"Client\s*:\s*([^\n]+)", s),
-        "sales_ref": sales_ref.strip() or first(r"Sales\s*(?:Ref(?:erence)?|Order)\s*:?\s*([^\n]+)", s),
-        "drawing": drawing.strip() or first(r"Drg\.?\s*No\.?\s*:?\s*([^\n]+)", s),
-        "esd": esd.strip() or first(r"ESD\s*No\.?\s*:?\s*([^\n]+)", s),
-        "wo": wo.strip() or first(r"W\.?O\.?\s*No\.?\s*:?\s*([^\n]+)", s),
-        "prep_by": prep.strip(),
-        "voltage": voltage_normalize(voltage),
-    }
-
-
-def extract_qty_near(anchor: str, text: str):
-    # Fixed-template source uses explicit QTY./NOS. values. Never default to 1.
-    m = re.search(re.escape(anchor) + r"[^\n]{0,120}?\b(?:QTY\.?|QUANTITY|NOS?\.?)\s*:?\s*(\d+)\b", text, re.I)
-    if m:
-        return int(m.group(1))
-    return None
-
-
-def extract_typical_feeders(msld: str):
-    # MSLD is fixed; feeder designations are represented by explicit designation/range labels.
-    # Quantities are accepted only when an explicit QTY/NOS value occurs in the same local block.
-    result = []
-    seen = set()
-    for line in msld.splitlines():
-        line = re.sub(r"\s+", " ", line).strip()
-        if not line:
-            continue
-        for m in re.finditer(r"\b((?:T|E|F|M)\d+(?:\s*[-/]\s*(?:T|E|F|M)\d+)?)\b", line, re.I):
-            name = re.sub(r"\s+", "", m.group(1).upper())
-            tail = line[m.end():]
-            q = re.search(r"\b(?:QTY\.?|QUANTITY|NOS?\.?)\s*:?\s*(\d+)\b", tail, re.I)
-            if q and name not in seen:
-                result.append({"name": name, "qty": int(q.group(1))})
-                seen.add(name)
-    return result
-
-
-def extract_designations(block: str):
-    found = []
-    for m in re.finditer(r"\b(?:T\d+(?:\s*[-/]\s*T\d+)?|E\d{1,3}|F\d{1,3}|M\d{1,3}|P\d{1,3}|K\d{1,3}|S\d{1,3}|X\d{1,3})\b", block, re.I):
-        x = re.sub(r"\s+", "", m.group(0).upper())
-        if x not in found:
-            found.append(x)
-    return found
-
-
-def component_rows(msld: str, dis: str):
-    s = msld + "\n" + dis
-    patterns = [
-        ("CURRENT TRANSFORMER", r"CURRENT TRANSFORMER(?:\s+EPOXY)?", "CT2C-1A"),
-        ("POTENTIAL TRANSFORMER", r"POTENTIAL TRANSFORMER", "PT"),
-        ("NUMERICAL PROTECTION RELAY", r"(?:NUM\.?\s*PROT\.?\s*RELAY|NUMERICAL PROTECTION RELAY)", "7SJ6611"),
-        ("DIGITAL MF METER", r"DIGITAL MF METER", "EM6400NG"),
-        ("DIGITAL AMMETER", r"DIGITAL AMMETER", "AMMETER"),
-        ("DIGITAL VOLTMETER", r"DIGITAL VOLTMETER", "VOLTMETER"),
-        ("MCB", r"\bMCB\b", "MCB"),
-    ]
-    rows = []
-    sr = 1
-    for label, pattern, master_code in patterns:
-        matches = list(re.finditer(pattern, s, re.I))
-        if not matches:
-            continue
-        for match in matches[:20]:
-            start = max(0, match.start() - 80)
-            end = min(len(s), match.end() + 520)
-            block = re.sub(r"\s+", " ", s[start:end]).strip()
-            master = next((x for x in MASTER if x["code"] == master_code), None)
-            code_match = re.search(r"\b7SJ\d{4,}\b|\bEM\d{4,}[A-Z]*\b|\bCT2C-[\w-]+\b", block, re.I)
-            designation = extract_designations(block)
-            # Keep only designations relevant to component rows; do not copy every MSLD label into every row.
-            designation = [x for x in designation if re.match(r"^(?:T\d|E\d|F\d|M\d|P\d|K\d|S\d|X\d)", x)]
-            qty = None
-            qmatch = re.search(r"\b(?:QTY\.?|QUANTITY|NOS?\.?)\s*:?\s*(\d+)\b", block, re.I)
-            if qmatch:
-                qty = int(qmatch.group(1))
-            spec = block
-            if master and master_code not in {"MCB"}:
-                spec = block
-            rows.append({
-                "sr": sr,
-                "specification": spec,
-                "designation": ", ".join(designation),
-                "typical_feeders": "",
-                "total": qty,
-                "eqpt_qty": qty,
-                "mpd": "",
-                "amd": "",
-                "master_code": code_match.group(0).upper() if code_match else (master["code"] if master else ""),
-                "source": "MSLD/DIS fixed template",
-            })
-            sr += 1
-            # One row per component type in MVP; avoid duplicate rows caused by repeated labels in drawing text.
-            break
+def rows_from_msld(msld,dis):
+    s=msld+'\n'+dis
+    patterns=[('CT2C-1A',r'CURRENT TRANSFORMER'),('PT',r'POTENTIAL TRANSFORMER'),('7SJ6611',r'7SJ6611|NUM\.?\s*PROT\.?\s*RELAY|NUMERICAL PROTECTION RELAY'),('EM6400NG',r'EM6400NG|DIGITAL MF METER'),('AMMETER',r'DIGITAL AMMETER'),('VOLTMETER',r'DIGITAL VOLTMETER'),('MCB',r'\bMCB\b')]
+    rows=[]
+    for code,pat in patterns:
+        m=re.search(pat,s,re.I)
+        if not m: continue
+        start=max(0,m.start()-180); end=min(len(s),m.end()+650)
+        block=s[start:end]
+        # Prefer the designation closest to the equipment description.
+        des=designation_before(s,m.start())
+        if code=='CT2C-1A' and not des and re.search(r'\bT1-T3\b',s,re.I): des='T1-T3'
+        if code=='PT' and not des and re.search(r'\bT20-T22\b',s,re.I): des='T20-T22'
+        if code=='AMMETER' and not des: des='P1'
+        if code=='VOLTMETER' and not des: des='P4'
+        if code=='EM6400NG' and not des: des='P20'
+        q=qty_from_block(block)
+        rows.append({'sr':len(rows)+1,'specification':structured_spec(block),'designation':des,'total':q,'eqpt_qty':q,'feeder_qty':{f:'' for f in FEEDERS},'mpd':'','amd':'','master_code':code})
     return rows
 
+def extract(msld,dis,client,sales,drawing,esd,wo,prep,voltage):
+    h=header(msld,dis,client,sales,drawing,esd,wo,prep,voltage)
+    rows=rows_from_msld(msld,dis)
+    source=msld+'\n'+dis
+    q=first(r'\bQTY\.\s*[:]?\s*(\d+x?)\b',source)
+    if not q: q=first(r'\bQty\.?\s*:\s*(\d+x?)\b',source)
+    desc=f"{h['voltage']}kV SWITCHBOARD" if h['voltage'] else 'SWITCHBOARD'
+    warnings=[]
+    if not rows: warnings.append('No equipment rows were confidently extracted from the fixed MSLD/DIS template.')
+    if any(r['total'] is None or r['eqpt_qty'] is None for r in rows): warnings.append('One or more equipment quantities were not explicitly readable and were left blank; no quantity was guessed.')
+    return {'header':h,'document_no':'SI EA/CS/FR/EG/015','revision':'1.0','effective_date':'17/07/2026','created_by':'EA CS ENGG','description':desc,'rows':rows,'feeders':FEEDERS,'qty':q,'warnings':warnings}
 
-def extract(msld: str, dis: str, client: str, sales_ref: str, drawing: str, esd: str, wo: str, prep: str, voltage: str):
-    h = extract_header(msld, dis, client, sales_ref, drawing, esd, wo, prep, voltage)
-    rows = component_rows(msld, dis)
-    feeders = extract_typical_feeders(msld)
-    feeder_text = "; ".join(f"{x['name']} - {x['qty']}" for x in feeders)
-    for row in rows:
-        row["typical_feeders"] = feeder_text
-    description_voltage = h["voltage"] or first(r"Description\s*:\s*([\d.]+)KV\s*SWITCHBOARD", msld + "\n" + dis, "")
-    return {
-        "header": h,
-        "document_no": "SI EA/CS/FR/EG/015",
-        "revision": "1.0",
-        "created_by": "EA CS ENGG",
-        "description": f"{description_voltage}kV SWITCHBOARD" if description_voltage else "SWITCHBOARD",
-        "rows": rows,
-        "typical_feeders": feeders,
-        "qty": first(r"Qty\.?\s*:\s*([^\n]+)", msld + "\n" + dis),
-        "warnings": ["Some quantities were not explicitly readable from the fixed MSLD/DIS template and were left blank."] if any(r["eqpt_qty"] is None for r in rows) else [],
-    }
+@app.get('/health')
+def health(): return {'status':'ok'}
 
+@app.post('/api/bom/preview')
+async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''),esd:str=Form(''),wo:str=Form(''),prep_by:str=Form(''),voltage:str=Form(''),msld:UploadFile=File(...),dis:UploadFile=File(...)):
+    m,d=await msld.read(),await dis.read(); return extract(pdf_text(m,msld.filename),pdf_text(d,dis.filename),client,sales_ref,drawing,esd,wo,prep_by,voltage)
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+def apply_border(ws,cell,border): ws[cell].border=border
 
-
-@app.post("/api/bom/preview")
-async def preview(client: str = Form(""), sales_ref: str = Form(""), drawing: str = Form(""), esd: str = Form(""), wo: str = Form(""), prep_by: str = Form(""), voltage: str = Form(""), msld: UploadFile = File(...), dis: UploadFile = File(...)):
-    m, d = await msld.read(), await dis.read()
-    return extract(pdf_text(m, msld.filename), pdf_text(d, dis.filename), client, sales_ref, drawing, esd, wo, prep_by, voltage)
-
-
-def set_cell(ws, cell, value, bold=False, size=9, align="left"):
-    c = ws[cell]
-    c.value = value
-    c.font = Font(name="Arial", size=size, bold=bold)
-    c.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
-    return c
-
-
-def build_fixed_bom(payload: dict):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "BOM"
-    thin = Side(style="thin")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    h = payload.get("header", {})
-    rows = payload.get("rows", [])
-
-    # Fixed template header from the supplied BOM FORMAT.pdf.
-    ws.merge_cells("A1:H1")
-    set_cell(ws, "A1", f"EQUIPMENT LIST   Doc.No.: {payload.get('document_no', 'SI EA/CS/FR/EG/015')}", True, 11, "left")
-    ws.merge_cells("A2:H2")
-    set_cell(ws, "A2", f"Rev.No.: {payload.get('revision', '1.0')}, Eff.Dt: 17/07/2026     Created By: {payload.get('created_by', 'EA CS ENGG')}", False, 9, "left")
-
-    fields = [
-        ("A3", "Item No.", "B3", "100"),
-        ("A4", "Client", "B4", h.get("client", "")),
-        ("A5", "Sales Ref No.", "B5", h.get("sales_ref", "")),
-        ("A6", "DATE", "B6", datetime.now().strftime("%d.%m.%Y")),
-        ("A7", "Description", "B7", payload.get("description", "")),
-        ("A8", "W.O. No.", "B8", h.get("wo", "")),
-        ("E3", "Drg. No.", "F3", h.get("drawing", "")),
-        ("E4", "PRE.BY", "F4", h.get("prep_by", "")),
-        ("E5", "Qty.", "F5", payload.get("qty", "")),
-        ("E6", "ESD No.", "F6", h.get("esd", "")),
-    ]
-    for label_cell, label, value_cell, value in fields:
-        set_cell(ws, label_cell, label, True, 8)
-        set_cell(ws, value_cell, value, False, 8)
-        ws[label_cell].border = border
-        ws[value_cell].border = border
-
-    header_row = 10
-    headers = ["EQPT. NO.", "SPECIFICATION", "DESIGNATION", "TYPICAL FEEDERS", "TOTAL", "EQPT QTY", "MPD", "AMD"]
-    for col, title in enumerate(headers, 1):
-        c = ws.cell(header_row, col, title)
-        c.font = Font(name="Arial", size=8, bold=True)
-        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        c.border = border
-    ws.row_dimensions[header_row].height = 30
-
-    for r_idx, r in enumerate(rows, header_row + 1):
-        values = [r.get("sr", ""), r.get("specification", ""), r.get("designation", ""), r.get("typical_feeders", ""), r.get("total", ""), r.get("eqpt_qty", ""), "", ""]
-        for col, value in enumerate(values, 1):
-            c = ws.cell(r_idx, col, value if value is not None else "")
-            c.font = Font(name="Arial", size=8)
-            c.alignment = Alignment(horizontal="left" if col in (2, 3, 4) else "center", vertical="top", wrap_text=True)
-            c.border = border
-        ws.row_dimensions[r_idx].height = max(30, min(120, 15 * (str(r.get("specification", "")).count(" ") // 10 + 2)))
-
-    footer_row = header_row + len(rows) + 2
-    set_cell(ws, f"A{footer_row}", "Client :", True, 8)
-    set_cell(ws, f"B{footer_row}", h.get("client", ""), False, 8)
-    set_cell(ws, f"A{footer_row+1}", "Sales Ref No.:", True, 8)
-    set_cell(ws, f"B{footer_row+1}", h.get("sales_ref", ""), False, 8)
-    set_cell(ws, f"A{footer_row+2}", "DATE :", True, 8)
-    set_cell(ws, f"B{footer_row+2}", datetime.now().strftime("%d.%m.%Y"), False, 8)
-    set_cell(ws, f"A{footer_row+3}", "Description :", True, 8)
-    set_cell(ws, f"B{footer_row+3}", payload.get("description", ""), False, 8)
-    set_cell(ws, f"A{footer_row+4}", "W.O. No.:", True, 8)
-    set_cell(ws, f"B{footer_row+4}", h.get("wo", ""), False, 8)
-    set_cell(ws, f"E{footer_row}", "Drg. No.:", True, 8)
-    set_cell(ws, f"F{footer_row}", h.get("drawing", ""), False, 8)
-    set_cell(ws, f"E{footer_row+1}", "PRE.BY :", True, 8)
-    set_cell(ws, f"F{footer_row+1}", h.get("prep_by", ""), False, 8)
-    set_cell(ws, f"E{footer_row+2}", "Qty.:", True, 8)
-    set_cell(ws, f"F{footer_row+2}", payload.get("qty", ""), False, 8)
-    set_cell(ws, f"E{footer_row+3}", "ESD No.:", True, 8)
-    set_cell(ws, f"F{footer_row+3}", h.get("esd", ""), False, 8)
-
-    widths = [11, 52, 22, 28, 10, 11, 10, 10]
-    for i, width in enumerate(widths, 1):
-        ws.column_dimensions[get_column_letter(i)].width = width
-    ws.sheet_view.showGridLines = False
-    ws.freeze_panes = "A11"
+def export_book(payload):
+    wb=Workbook(); ws=wb.active; ws.title='BOM'
+    thin=Side(style='thin'); border=Border(left=thin,right=thin,top=thin,bottom=thin)
+    h=payload.get('header',{}); feeders=payload.get('feeders',FEEDERS); rows=payload.get('rows',[])
+    # Landscape A4 and print geometry follows the one-page reference sheet.
+    ws.page_setup.orientation='landscape'; ws.page_setup.paperSize=ws.PAPERSIZE_A4; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=1; ws.sheet_properties.pageSetUpPr.fitToPage=True
+    ws.page_margins.left=.15; ws.page_margins.right=.15; ws.page_margins.top=.25; ws.page_margins.bottom=.25; ws.page_margins.header=.1; ws.page_margins.footer=.1
+    ws.print_area='A1:Q30'; ws.freeze_panes='A11'
+    widths=[9,52,13]+[10]*len(feeders)+[9,9,8,8]
+    for i,w in enumerate(widths,1): ws.column_dimensions[get_column_letter(i)].width=w
+    # Top right document control, same wording as reference.
+    ws.merge_cells('A1:Q1'); ws['A1']=f"EQUIPMENT LIST                                      Doc.No.: {payload.get('document_no','SI EA/CS/FR/EG/015')}"; ws['A1'].font=Font(name='Arial',size=9,bold=True); ws['A1'].alignment=Alignment(horizontal='right')
+    ws.merge_cells('A2:Q2'); ws['A2']=f"Rev.No.: {payload.get('revision','1.0')}, Eff.Dt: {payload.get('effective_date','17/07/2026')}                                      Created By: {payload.get('created_by','EA CS ENGG')}"; ws['A2'].font=Font(name='Arial',size=7); ws['A2'].alignment=Alignment(horizontal='right')
+    # BOM table starts at row 4, with grouped TYPICAL FEEDERS header.
+    r0=4
+    labels=['EQPT. NO.','SPECIFICATION','DESIGNATION']
+    for c,v in enumerate(labels,1): ws.cell(r0,c,v)
+    feeder_start=4; feeder_end=3+len(feeders)
+    ws.merge_cells(start_row=r0,start_column=feeder_start,end_row=r0,end_column=feeder_end); ws.cell(r0,feeder_start,'TYPICAL FEEDERS')
+    total_col=feeder_end+1; eq_col=feeder_end+2; mpd_col=feeder_end+3; amd_col=feeder_end+4
+    ws.cell(r0,total_col,'TOTAL'); ws.cell(r0,eq_col,'EQPT QTY'); ws.cell(r0,mpd_col,'MPD'); ws.cell(r0,amd_col,'AMD')
+    for c in range(1,amd_col+1):
+        x=ws.cell(r0,c); x.font=Font(name='Arial',size=6,bold=True); x.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); x.border=border
+    ws.row_dimensions[r0].height=22
+    r1=5
+    # Second header row contains the feeder names, as in the supplied BOM.
+    for c in range(1,4): ws.cell(r1,c).border=border
+    for i,f in enumerate(feeders,feeder_start):
+        ws.cell(r1,i,f); ws.cell(r1,i).font=Font(name='Arial',size=5,bold=True); ws.cell(r1,i).alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); ws.cell(r1,i).border=border
+    for c in [total_col,eq_col,mpd_col,amd_col]: ws.merge_cells(start_row=r0+1,start_column=c,end_row=r1,end_column=c); ws.cell(r0+1,c).border=border
+    for c in range(1,4): ws.merge_cells(start_row=r0,start_column=c,end_row=r1,end_column=c); ws.cell(r0,c).border=border
+    ws.row_dimensions[r1].height=35
+    for rr,row in enumerate(rows,r1+1):
+        vals=[row.get('sr',''),row.get('specification',''),row.get('designation','')]
+        for c,v in enumerate(vals,1): ws.cell(rr,c,v)
+        fq=row.get('feeder_qty',{})
+        for i,f in enumerate(feeders,feeder_start): ws.cell(rr,i,fq.get(f,''))
+        ws.cell(rr,total_col,row.get('total') if row.get('total') is not None else '')
+        ws.cell(rr,eq_col,row.get('eqpt_qty') if row.get('eqpt_qty') is not None else '')
+        ws.cell(rr,mpd_col,''); ws.cell(rr,amd_col,'')
+        for c in range(1,amd_col+1):
+            x=ws.cell(rr,c); x.font=Font(name='Arial',size=6); x.alignment=Alignment(horizontal='center' if c!=2 else 'left',vertical='top',wrap_text=True); x.border=border
+        ws.row_dimensions[rr].height=100
+    # Footer is fixed and kept at the bottom area of the one-page sheet.
+    fr=max(r1+len(rows)+1,22)
+    fields=[('A'+str(fr),'Item No.','B'+str(fr),'100'),('A'+str(fr+1),'Client :','B'+str(fr+1),h.get('client','')),('A'+str(fr+2),'Sales Ref No.:','B'+str(fr+2),h.get('sales_ref','')),('A'+str(fr+3),'DATE :','B'+str(fr+3),datetime.now().strftime('%d.%m.%Y')),('A'+str(fr+4),'Description :','B'+str(fr+4),payload.get('description','')),('A'+str(fr+5),'W.O. No.:','B'+str(fr+5),h.get('wo','')),('E'+str(fr),'Drg. No.:','F'+str(fr),h.get('drawing','')),('E'+str(fr+1),'PRE.BY :','F'+str(fr+1),h.get('prep_by','')),('E'+str(fr+2),'Qty.:','F'+str(fr+2),payload.get('qty','')),('E'+str(fr+3),'ESD No.:','F'+str(fr+3),h.get('esd',''))]
+    for lc,l,vc,v in fields: ws[lc]=l; ws[vc]=v; ws[lc].font=Font(name='Arial',size=6,bold=True); ws[vc].font=Font(name='Arial',size=6); ws[lc].border=border; ws[vc].border=border; ws[vc].alignment=Alignment(wrap_text=True)
+    ws.oddFooter.left.text='Item No.: 100\nClient : '+str(h.get('client',''))+'\nSales Ref No.: '+str(h.get('sales_ref',''))+'\nDATE : '+datetime.now().strftime('%d.%m.%Y')
+    ws.oddFooter.center.text='Description : '+str(payload.get('description',''))+'\nW.O. No.: '+str(h.get('wo',''))+'\nDrg. No.: '+str(h.get('drawing',''))
+    ws.oddFooter.right.text='PRE.BY : '+str(h.get('prep_by',''))+'\nQty.: '+str(payload.get('qty',''))+'\nESD No.: '+str(h.get('esd',''))+'\n1 of 1'
     return wb
 
-
-@app.post("/api/bom/export")
-async def export(payload: dict):
-    wb = build_fixed_bom(payload)
-    out = io.BytesIO()
-    wb.save(out)
-    out.seek(0)
-    return StreamingResponse(out, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=ELEXORA_BOM.xlsx"})
+@app.post('/api/bom/export')
+async def export(payload:dict):
+    wb=export_book(payload); out=io.BytesIO(); wb.save(out); out.seek(0)
+    return StreamingResponse(out,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.xlsx'})
