@@ -167,10 +167,16 @@ def extract_header_from_page(data, filename):
     band = lambda a, b, c, d: text_in_band(words, a, b, c, d)
     drawing_band = band(980, 1110, 805, 830)
     drawing = first(r'(G\d{4,}-[A-Z0-9]+-[A-Z0-9]+)', drawing_band, drawing_band)
+    # In the fixed drawing template the ESD number is embedded in the drawing number,
+    # e.g. G71570-SED22-S003 -> ESD No. = SED22.
+    esd = first(r'\b(SED\d+)\b', drawing_band)
+    if not esd:
+        esd = first(r'\b(SED\d+)\b', words_text(words))
     return {
         'client': band(345, 440, 782, 792),
         'sales_ref': band(910, 960, 782, 793),
         'drawing': drawing,
+        'esd': esd,
         'wo': band(905, 960, 793, 805),
         'description': band(690, 835, 775, 795),
         'qty': band(1000, 1040, 790, 805),
@@ -184,7 +190,7 @@ def header(msld, dis, client, sales, drawing, esd, wo, prep, voltage):
         'client': client.strip() or first(r'Client\s*:?\s*([^\n]+)', s),
         'sales_ref': sales.strip() or first(r'Sales\s*Ref\.?\s*:?\s*([^\n]+)', s),
         'drawing': drawing.strip() or first(r'Drg\.?\s*No\.?\s*:?\s*([^\n]+)', s),
-        'esd': esd.strip() or first(r'ESD\s*No\.?\s*:?\s*([^\n]+)', s),
+        'esd': esd.strip() or first(r'\b(SED\d+)\b', s) or first(r'ESD\s*No\.?\s*:?\s*([^\n]+)', s),
         'wo': wo.strip() or first(r'W\.?O\.?\s*No\.?\s*:?\s*([^\n]+)', s),
         'prep_by': prep.strip(),
         'voltage': norm_voltage(voltage),
@@ -228,6 +234,9 @@ def extract_from_files(msld_bytes, msld_name, dis_bytes, dis_name, client, sales
     for key in ('client', 'sales_ref', 'drawing', 'wo'):
         if ph.get(key):
             h[key] = ph[key]
+    # ESD is always derived from the uploaded fixed-template drawing when present.
+    if ph.get('esd'):
+        h['esd'] = ph['esd']
 
     source = msld_text + '\n' + dis_text
     q = first(r'\bQty\.\s*:\s*(\d+x?)\b', source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b', source) or ph.get('qty', '')
@@ -343,7 +352,9 @@ def export_book(payload):
             ws.cell(i, col).font = Font(name='Courier New', size=7)
         ws.row_dimensions[i].height = 15.6
 
-    fr = 72
+    # The supplied BOM has a large blank area below the table; the footer is
+    # aligned near the bottom of the A4 page and has no enclosing border.
+    fr = 80
     footer_left = [
         ('Item No.', '100'),
         ('Client :', h.get('client', '')),
@@ -371,8 +382,10 @@ def export_book(payload):
         ws.cell(fr + i, 7, label).font = Font(name='Arial', size=7)
         ws.cell(fr + i, 8, value).font = Font(name='Arial', size=7)
         ws.cell(fr + i, 8).alignment = Alignment(horizontal='right')
+    for r in range(fr, fr + 4):
+        ws.row_dimensions[r].height = 13
 
-    ws.print_area = 'A1:H76'
+    ws.print_area = 'A1:H84'
     return wb
 
 
