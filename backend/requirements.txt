@@ -4,3 +4,4 @@ python-multipart==0.0.20
 pydantic==2.11.7
 openpyxl==3.1.5
 PyMuPDF==1.26.3
+psycopg[binary]==3.2.10
