@@ -5,6 +5,76 @@ from datetime import datetime
 import fitz, io, re
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
+import os
+import sqlite3
+import secrets
+import hashlib
+import hmac
+from fastapi import HTTPException, Depends
+from pydantic import BaseModel
+
+AUTH_DB = os.getenv("AUTH_DB_PATH", "/tmp/elexora_auth.db")
+TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
+
+def db():
+    conn = sqlite3.connect(AUTH_DB)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )""")
+    conn.commit()
+    return conn
+
+def validate_password(password):
+    errors = []
+    if len(password) < 8: errors.append("at least 8 characters")
+    if not re.search(r"[A-Z]", password): errors.append("one uppercase letter")
+    if not re.search(r"[a-z]", password): errors.append("one lowercase letter")
+    if not re.search(r"\d", password): errors.append("one number")
+    if not re.search(r"[^A-Za-z0-9]", password): errors.append("one special character")
+    return errors
+
+def password_hash(password, salt=None):
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
+    return salt.hex() + "$" + digest.hex()
+
+def password_ok(password, stored):
+    try:
+        salt_hex, digest_hex = stored.split("$", 1)
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), 310000).hex()
+        return hmac.compare_digest(actual, digest_hex)
+    except (ValueError, TypeError):
+        return False
+
+class AuthRequest(BaseModel):
+    username: str
+    password: str
+
+def current_user(authorization: str = ""):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Please sign in.")
+    token = authorization[7:].strip()
+    conn = db()
+    row = conn.execute(
+        "SELECT users.username FROM sessions JOIN users ON users.id=sessions.user_id "
+        "WHERE sessions.token=? AND sessions.expires_at>?",
+        (token, int(datetime.now().timestamp()))
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
+    return row["username"]
+
 
 app = FastAPI(title='ELEXORA 2 API', version='0.7.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
@@ -139,8 +209,52 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
 
 @app.get('/health')
 def health():return {'status':'ok'}
+
+@app.post('/api/auth/signup')
+def signup(payload: AuthRequest):
+    username = payload.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,32}", username):
+        raise HTTPException(status_code=400, detail="Username must be 3-32 characters and use only letters, numbers, dot, underscore or hyphen.")
+    errors = validate_password(payload.password)
+    if errors:
+        raise HTTPException(status_code=400, detail="Password must contain " + ", ".join(errors) + ".")
+    conn = db()
+    try:
+        conn.execute("INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)",
+                     (username.lower(), password_hash(payload.password), datetime.utcnow().isoformat()))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="That username already exists. Please choose another.")
+    finally:
+        conn.close()
+    return {"message":"Account created successfully. You can now sign in."}
+
+@app.post('/api/auth/login')
+def login(payload: AuthRequest):
+    username = payload.username.strip().lower()
+    conn = db()
+    row = conn.execute("SELECT id,password_hash,username FROM users WHERE username=?", (username,)).fetchone()
+    if not row or not password_ok(payload.password, row["password_hash"]):
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = secrets.token_urlsafe(32)
+    expires = int(datetime.now().timestamp()) + TOKEN_TTL_SECONDS
+    conn.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)", (token,row["id"],expires))
+    conn.commit()
+    conn.close()
+    return {"token":token,"username":row["username"],"expires_at":expires}
+
+@app.post('/api/auth/logout')
+def logout(authorization: str = ""):
+    token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if token:
+        conn=db()
+        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+        conn.commit()
+        conn.close()
+    return {"message":"Signed out."}
 @app.post('/api/bom/preview')
-async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''),esd:str=Form(''),wo:str=Form(''),prep_by:str=Form(''),voltage:str=Form(''),msld:UploadFile=File(...),dis:UploadFile=File(...)):
+async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''),esd:str=Form(''),wo:str=Form(''),prep_by:str=Form(''),voltage:str=Form(''),msld:UploadFile=File(...),dis:UploadFile=File(...),user:str=Depends(current_user)):
  m,d=await msld.read(),await dis.read(); return extract_from_files(m,msld.filename,d,dis.filename,client,sales_ref,drawing,esd,wo,prep_by,voltage)
 
 def export_book(payload):
@@ -165,5 +279,5 @@ def export_book(payload):
  for i,(label,value) in enumerate(footer_right):ws.cell(fr+i,7,label).font=Font(name='Arial',size=7);ws.cell(fr+i,8,value).font=Font(name='Arial',size=7);ws.cell(fr+i,8).alignment=Alignment(horizontal='right')
  ws.print_area='A1:H76'; return wb
 @app.post('/api/bom/export')
-async def export(payload:dict):
+async def export(payload:dict, user:str=Depends(current_user)):
  wb=export_book(payload);out=io.BytesIO();wb.save(out);out.seek(0);return StreamingResponse(out,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.xlsx'})
