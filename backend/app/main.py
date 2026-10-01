@@ -6,33 +6,38 @@ import fitz, io, re
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 import os
-import sqlite3
 import secrets
 import hashlib
 import hmac
-from fastapi import HTTPException, Depends
+from fastapi import HTTPException, Depends, Header
 from pydantic import BaseModel
 
-AUTH_DB = os.getenv("AUTH_DB_PATH", "/tmp/elexora_auth.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
 
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is required")
+
 def db():
-    conn = sqlite3.connect(AUTH_DB)
-    conn.row_factory = sqlite3.Row
-    conn.execute("""CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
-        token TEXT PRIMARY KEY,
-        user_id INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )""")
-    conn.commit()
-    return conn
+    import psycopg
+    from psycopg.rows import dict_row
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+def init_auth_db():
+    with db() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS users (
+            id BIGSERIAL PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            expires_at BIGINT NOT NULL
+        )""")
+        conn.commit()
+
 
 def validate_password(password):
     errors = []
@@ -60,17 +65,16 @@ class AuthRequest(BaseModel):
     username: str
     password: str
 
-def current_user(authorization: str = ""):
+def current_user(authorization: str = Header(default="")):
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Please sign in.")
     token = authorization[7:].strip()
-    conn = db()
-    row = conn.execute(
-        "SELECT users.username FROM sessions JOIN users ON users.id=sessions.user_id "
-        "WHERE sessions.token=? AND sessions.expires_at>?",
-        (token, int(datetime.now().timestamp()))
-    ).fetchone()
-    conn.close()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT users.username FROM sessions JOIN users ON users.id=sessions.user_id "
+            "WHERE sessions.token=%s AND sessions.expires_at>%s",
+            (token, int(datetime.now().timestamp()))
+        ).fetchone()
     if not row:
         raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
     return row["username"]
@@ -208,7 +212,12 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  return {'header':h,'document_no':'SI EA/CS/FR/EG/015','revision':'1.0','effective_date':'17/07/2026','created_by':'EA CS ENGG','description':description,'rows':rows,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'qty':q,'warnings':warnings,'feeder_details':feeder_info,'same_input_file':same}
 
 @app.get('/health')
-def health():return {'status':'ok'}
+def health():
+    return {'status':'ok'}
+
+@app.on_event("startup")
+def startup():
+    init_auth_db()
 
 @app.post('/api/auth/signup')
 def signup(payload: AuthRequest):
@@ -218,41 +227,47 @@ def signup(payload: AuthRequest):
     errors = validate_password(payload.password)
     if errors:
         raise HTTPException(status_code=400, detail="Password must contain " + ", ".join(errors) + ".")
-    conn = db()
     try:
-        conn.execute("INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)",
-                     (username.lower(), password_hash(payload.password), datetime.utcnow().isoformat()))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="That username already exists. Please choose another.")
-    finally:
-        conn.close()
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO users(username,password_hash) VALUES(%s,%s)",
+                (username.lower(), password_hash(payload.password))
+            )
+            conn.commit()
+    except Exception as exc:
+        if getattr(exc, "sqlstate", None) == "23505":
+            raise HTTPException(status_code=409, detail="That username already exists. Please choose another.")
+        raise
     return {"message":"Account created successfully. You can now sign in."}
 
 @app.post('/api/auth/login')
 def login(payload: AuthRequest):
     username = payload.username.strip().lower()
-    conn = db()
-    row = conn.execute("SELECT id,password_hash,username FROM users WHERE username=?", (username,)).fetchone()
-    if not row or not password_ok(payload.password, row["password_hash"]):
-        conn.close()
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
-    token = secrets.token_urlsafe(32)
-    expires = int(datetime.now().timestamp()) + TOKEN_TTL_SECONDS
-    conn.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)", (token,row["id"],expires))
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id,password_hash,username FROM users WHERE username=%s",
+            (username,)
+        ).fetchone()
+        if not row or not password_ok(payload.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+        token = secrets.token_urlsafe(32)
+        expires = int(datetime.now().timestamp()) + TOKEN_TTL_SECONDS
+        conn.execute(
+            "INSERT INTO sessions(token,user_id,expires_at) VALUES(%s,%s,%s)",
+            (token, row["id"], expires)
+        )
+        conn.commit()
     return {"token":token,"username":row["username"],"expires_at":expires}
 
 @app.post('/api/auth/logout')
-def logout(authorization: str = ""):
+def logout(authorization: str = Header(default="")):
     token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
     if token:
-        conn=db()
-        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
-        conn.commit()
-        conn.close()
+        with db() as conn:
+            conn.execute("DELETE FROM sessions WHERE token=%s", (token,))
+            conn.commit()
     return {"message":"Signed out."}
+
 @app.post('/api/bom/preview')
 async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''),esd:str=Form(''),wo:str=Form(''),prep_by:str=Form(''),voltage:str=Form(''),msld:UploadFile=File(...),dis:UploadFile=File(...),user:str=Depends(current_user)):
  m,d=await msld.read(),await dis.read(); return extract_from_files(m,msld.filename,d,dis.filename,client,sales_ref,drawing,esd,wo,prep_by,voltage)
