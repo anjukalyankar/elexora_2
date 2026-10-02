@@ -182,26 +182,26 @@ def first_match(pattern, text, flags=re.IGNORECASE):
     return clean_value(m.group(1)) if m else ''
 
 def extract_ct_ratio(ct_text):
-    m = re.search(r'\\bCTR\\s*:\\s*([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:\\.[0-9]+)?)?)\\s*/', ct_text or '', re.I)
+    m = re.search(r'\bCTR\s*:\s*([0-9]+(?:\.[0-9]+)?(?:-[0-9]+(?:\.[0-9]+)?)?)\s*/', ct_text or '', re.I)
     return m.group(1) if m else ''
 
 def extract_ct_secondary_current(ct_text):
-    m = re.search(r'\\bCTR\\s*:\\s*[0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:\\.[0-9]+)?)?\\s*/\\s*([0-9]+(?:\\.[0-9]+)?)\\s*A', ct_text or '', re.I)
+    m = re.search(r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?(?:-[0-9]+(?:\.[0-9]+)?)?\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*A', ct_text or '', re.I)
     return f'{m.group(1)}A' if m else ''
 
 def extract_ct_core_lines(ct_text):
-    labeled = re.findall(r'CORE\\s*(\\d+)\\s*:\\s*(.*?)(?=,\\s*CORE\\s*\\d+\\s*:|$)', ct_text or '', re.I)
+    labeled = re.findall(r'CORE\s*(\d+)\s*:\s*(.*?)(?=,\s*CORE\s*\d+\s*:|$)', ct_text or '', re.I)
     if labeled:
         return [clean_value(v) for _, v in sorted(labeled, key=lambda x:int(x[0]))]
     values=[]
-    for m in re.finditer(r'\\bCTR\\s*:\\s*([^\\n]+)', ct_text or '', re.I):
+    for m in re.finditer(r'\bCTR\s*:\s*([^\n]+)', ct_text or '', re.I):
         value=clean_value(m.group(1))
-        value=re.split(r'\\s+(?:STC|SHORT\\s+TIME\\s+CURRENT)\\s*:',value,1,flags=re.I)[0]
+        value=re.split(r'\s+(?:STC|SHORT\s+TIME\s+CURRENT)\s*:',value,1,flags=re.I)[0]
         if value: values.append(value)
     return values
 
 def extract_ct_core_count(ct_text):
-    explicit=first_match(r'NO\\.?\\s*OF\\s*CORES\\s*[:\\-]?\\s*(\\d+)',ct_text)
+    explicit=first_match(r'NO\.?\s*OF\s*CORES\s*[:\-]?\s*(\d+)',ct_text)
     if explicit: return int(explicit)
     return len(extract_ct_core_lines(ct_text)) or 1
 
@@ -212,7 +212,7 @@ def generate_ct_code(ct_text):
     return f'CT{ratio}{count}C-{secondary}' if ratio and secondary else ''
 
 def extract_ct_type(ct_text):
-    for pattern in [r'(EPOXY\\s+CAST\\s+RESIN\\s*\\(\\s*WOUND\\s+TYPE\\s*\\))',r'(WOUND\\s+TYPE)',r'(WINDOW\\s+TYPE)']:
+    for pattern in [r'(EPOXY\s+CAST\s+RESIN\s*\(\s*WOUND\s+TYPE\s*\))',r'(WOUND\s+TYPE)',r'(WINDOW\s+TYPE)']:
         value=first_match(pattern,ct_text)
         if value:return value.upper()
     return ''
@@ -225,6 +225,7 @@ def build_ctr_line(ct_text):
     n=extract_ct_core_count(ct_text)
     word={1:'SINGLE',2:'TWO',3:'THREE'}.get(n,str(n))
     return f'{word} CORE CT'
+
 def extract_ct_make(dis_text):
     for pattern in [
         r'CT\s*/\s*PT\s+([A-Za-z0-9/&.\- ]+)',
