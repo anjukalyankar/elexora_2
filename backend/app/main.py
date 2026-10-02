@@ -182,78 +182,49 @@ def first_match(pattern, text, flags=re.IGNORECASE):
     return clean_value(m.group(1)) if m else ''
 
 def extract_ct_ratio(ct_text):
-    for pattern in [
-        r'\bCTR\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*/',
-        r'\bCT\s*RATIO\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*/',
-    ]:
-        value = first_match(pattern, ct_text)
-        if value:
-            return value
-    return ''
+    m = re.search(r'\\bCTR\\s*:\\s*([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:\\.[0-9]+)?)?)\\s*/', ct_text or '', re.I)
+    return m.group(1) if m else ''
 
 def extract_ct_secondary_current(ct_text):
-    for pattern in [
-        r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?\s*/\s*[0-9]+(?:\s*-\s*)?([0-9]+(?:\.[0-9]+)?)\s*A\b',
-        r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*A\b',
-    ]:
-        m = re.search(pattern, ct_text or '', re.IGNORECASE)
-        if m:
-            return f'{m.group(1)}A'
-    return ''
+    m = re.search(r'\\bCTR\\s*:\\s*[0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:\\.[0-9]+)?)?\\s*/\\s*([0-9]+(?:\\.[0-9]+)?)\\s*A', ct_text or '', re.I)
+    return f'{m.group(1)}A' if m else ''
+
+def extract_ct_core_lines(ct_text):
+    labeled = re.findall(r'CORE\\s*(\\d+)\\s*:\\s*(.*?)(?=,\\s*CORE\\s*\\d+\\s*:|$)', ct_text or '', re.I)
+    if labeled:
+        return [clean_value(v) for _, v in sorted(labeled, key=lambda x:int(x[0]))]
+    values=[]
+    for m in re.finditer(r'\\bCTR\\s*:\\s*([^\\n]+)', ct_text or '', re.I):
+        value=clean_value(m.group(1))
+        value=re.split(r'\\s+(?:STC|SHORT\\s+TIME\\s+CURRENT)\\s*:',value,1,flags=re.I)[0]
+        if value: values.append(value)
+    return values
 
 def extract_ct_core_count(ct_text):
-    value = first_match(r'NO\.?\s*OF\s*CORES\s*[:\-]?\s*(\d+)', ct_text)
-    if value:
-        return int(value)
-    cores = re.findall(r'\bCORE\s*([0-9]+)\s*:', ct_text or '', re.IGNORECASE)
-    return max((int(x) for x in cores), default=0)
+    explicit=first_match(r'NO\\.?\\s*OF\\s*CORES\\s*[:\\-]?\\s*(\\d+)',ct_text)
+    if explicit: return int(explicit)
+    return len(extract_ct_core_lines(ct_text)) or 1
 
 def generate_ct_code(ct_text):
-    ratio = extract_ct_ratio(ct_text)
-    secondary = extract_ct_secondary_current(ct_text)
-    core_count = extract_ct_core_count(ct_text) or 1
-    return f'CT{ratio}{core_count}C-{secondary}' if ratio and secondary else ''
+    ratio=extract_ct_ratio(ct_text)
+    secondary=extract_ct_secondary_current(ct_text)
+    count=extract_ct_core_count(ct_text)
+    return f'CT{ratio}{count}C-{secondary}' if ratio and secondary else ''
 
 def extract_ct_type(ct_text):
-    for pattern in [
-        r'(EPOXY\s+CAST\s+RESIN\s*\(\s*WOUND\s+TYPE\s*\))',
-        r'(WOUND\s+TYPE)',
-        r'(WINDOW\s+TYPE)',
-    ]:
-        value = first_match(pattern, ct_text)
-        if value:
-            return value.upper()
+    for pattern in [r'(EPOXY\\s+CAST\\s+RESIN\\s*\\(\\s*WOUND\\s+TYPE\\s*\\))',r'(WOUND\\s+TYPE)',r'(WINDOW\\s+TYPE)']:
+        value=first_match(pattern,ct_text)
+        if value:return value.upper()
     return ''
 
 def build_ct_description(ct_text):
-    ct_type = extract_ct_type(ct_text)
-    return f'CURRENT TRANSFORMER {ct_type}' if ct_type else 'CURRENT TRANSFORMER'
-
-def extract_ct_core(ct_text, core_number):
-    if not ct_text:
-        return ''
-    next_core = core_number + 1
-    pattern = (
-        rf'CORE\s*{core_number}\s*:\s*(.*?)'
-        rf'(?=,\s*CORE\s*{next_core}\s*:|'
-        rf'\n\s*CORE\s*{next_core}\s*:|$)'
-    )
-    m = re.search(pattern, ct_text, re.IGNORECASE | re.DOTALL)
-    if not m:
-        return ''
-    value = clean_value(m.group(1))
-    return f'- CORE {core_number}: {value}' if value else ''
-
-def extract_ct_ctr(ct_text):
-    m = re.search(r'\bCTR\s*:\s*([^\n]+)', ct_text or '', re.IGNORECASE)
-    return clean_value(m.group(1)) if m else ''
+    t=extract_ct_type(ct_text)
+    return f'CURRENT TRANSFORMER {t}' if t else 'CURRENT TRANSFORMER'
 
 def build_ctr_line(ct_text):
-    ctr = extract_ct_ctr(ct_text)
-    if not ctr:
-        return ''
-    prefix = 'SINGLE CORE CT' if extract_ct_core_count(ct_text) == 1 else 'TWO CORE CT'
-    return f'{prefix}, CTR: {ctr}'
+    n=extract_ct_core_count(ct_text)
+    word={1:'SINGLE',2:'TWO',3:'THREE'}.get(n,str(n))
+    return f'{word} CORE CT'
 def extract_ct_make(dis_text):
     for pattern in [
         r'CT\s*/\s*PT\s+([A-Za-z0-9/&.\- ]+)',
@@ -294,36 +265,36 @@ def extract_panel_suitability(dis_text):
     m = re.search(r'(SUITABLE\s+FOR[^\n]+PANEL)', dis_text or '', re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
-def ct_spec(msld_text, dis_text):
-    ct_code = generate_ct_code(msld_text)
-    ct_make = extract_ct_make(dis_text)
-    ct_description = build_ct_description(msld_text)
-    rated_voltage = extract_rated_voltage(dis_text)
-    frequency = extract_frequency(dis_text)
-    stc = first_match(r'(?:SHORT\s+TIME\s+CURRENT|STC)\s*:?\s*([^\n]+)', msld_text or '')
-    bil = extract_bil(dis_text)
-    ctr_line = build_ctr_line(msld_text)
-    core1 = extract_ct_core(msld_text, 1)
-    core2 = extract_ct_core(msld_text, 2)
-    panel = extract_panel_suitability(dis_text)
-
-    return [
+def ct_spec(ct_text, dis_text):
+    ct_code=generate_ct_code(ct_text)
+    ct_make=extract_ct_make(dis_text)
+    ct_description=build_ct_description(ct_text)
+    rated_voltage=extract_rated_voltage(dis_text)
+    frequency=extract_frequency(dis_text)
+    stc=first_match(r'(?:SHORT\\s+TIME\\s+CURRENT|STC)\\s*:?\\s*([^\\n]+)',ct_text or '')
+    bil=extract_bil(dis_text)
+    cores=extract_ct_core_lines(ct_text)
+    panel=extract_panel_suitability(dis_text)
+    lines=[
         ct_code or 'CT',
         f'{ct_make.upper()} MAKE' if ct_make else '',
         ct_description,
         '- SINGLE PHASE, AS PER IS/IEC STANDARD',
-        f'- RATED VOLTAGE : {rated_voltage}' if rated_voltage else '- RATED VOLTAGE :',
-        f'- RATED FREQUENCY : {frequency}' if frequency else '- RATED FREQUENCY :',
-        f'- SHORT TIME CURRENT : {stc}' if stc else '- SHORT TIME CURRENT :',
+        f'- RATED VOLTAGE: {rated_voltage}' if rated_voltage else '- RATED VOLTAGE:',
+        f'- RATED FREQUENCY: {frequency}' if frequency else '- RATED FREQUENCY:',
+        f'- SHORT TIME CURRENT: {stc}' if stc else '- SHORT TIME CURRENT:',
         f'- BIL: {bil}' if bil else '- BIL:',
         'INSULATION CLASS:-B',
         'AS GIVEN BELOW:-',
-        ctr_line or 'TWO CORE CT, CTR:',
-        core1 or '- CORE 1:',
-        core2 or '- CORE 2:',
-        panel or 'SUITABLE FOR',
-        'CT SECONDARY TERMINAL ON P2 SIDE'
+        build_ctr_line(ct_text)
     ]
+    for i,value in enumerate(cores,1):
+        lines.append(f'- CORE {i}: {value}')
+    lines.extend([
+        f'SUITABLE FOR {panel}' if panel else 'SUITABLE FOR',
+        'CT SECONDARY TERMINAL ON P2 SIDE'
+    ])
+    return lines
 
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
