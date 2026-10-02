@@ -83,16 +83,18 @@ def current_user(authorization: str = Header(default="")):
 app = FastAPI(title='ELEXORA 2 API', version='0.7.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 REFERENCE_FEEDER_COLUMN = 'FEEDER TYPICAL'
-MASTER = {'CT2C-1A':'CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)','PT':'POTENTIAL TRANSFORMER (DRAWOUT TYPE)','7SJ6611':'NUMERICAL PROTECTION RELAY','EM6400NG':'DIGITAL MF METER','AMMETER':'DIGITAL AMMETER WITH BUILT IN SEL. S/W','VOLTMETER':'DIGITAL VOLTMETER WITH BUILT IN SEL. S/W','MCB':'MINIATURE CIRCUIT BREAKER'}
+MASTER = {'CT':'CURRENT TRANSFORMER','PT':'POTENTIAL TRANSFORMER (DRAWOUT TYPE)','7SJ6611':'NUMERICAL PROTECTION RELAY','EM6400NG':'DIGITAL MF METER','AMMETER':'DIGITAL AMMETER WITH BUILT IN SEL. S/W','VOLTMETER':'DIGITAL VOLTMETER WITH BUILT IN SEL. S/W','MCB':'MINIATURE CIRCUIT BREAKER'}
 
-# Fixed CT BOM structure. Source tags are deliberately explicit: MSLD values are project data;
-# DIS values preserve the fixed specification wording; FIXED values are unchanged/editable as noted.
+# Fixed CT BOM structure. Project values are extracted from the fixed MSLD/DIS templates;
+# wording and line order remain fixed.
 CT_TEMPLATE = [
- ('CT1502C-1A','MSLD'),('PRAGATI/ECS MAKE','DIS'),('CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)','MSLD'),
- ('- SINGLE PHASE, AS PER IS/IEC STANDARD','FIXED'),('- RATED VOLTAGE : 33KV','DIS'),('- RATED FREQUENCY : 50Hz','DIS'),
- ('- SHORT TIME CURRENT : 31.5KA FOR 3SEC','MSLD'),('- BIL: 36/70/170KVp','DIS'),('INSULATION CLASS:-B','EDITABLE_FIXED'),
- ('AS GIVEN BELOW:-','FIXED'),('TWO CORE CT, CTR: 150/1-1A','MSLD'),('- CORE 1: 150/1A, 15VA, CL.: 5P10','MSLD'),
- ('- CORE 2: 150/1A, 15VA, CL.: 0.5, ISF≤5','MSLD'),('SUITABLE FOR 8BK80(RD)-1000mm WIDTH PANEL','DIS'),('CT SECONDARY TERMINAL ON P2 SIDE','EDITABLE_FIXED')]
+ ('CT_CODE','MSLD_GENERATED'),('MAKE','DIS'),('CT_TYPE','MSLD'),
+ ('- SINGLE PHASE, AS PER IS/IEC STANDARD','FIXED'),('- RATED VOLTAGE','DIS'),
+ ('- RATED FREQUENCY','DIS'),('- SHORT TIME CURRENT','MSLD'),
+ ('- BIL','DIS_CONSTRUCTED'),('INSULATION CLASS:-B','EDITABLE_FIXED'),
+ ('AS GIVEN BELOW:-','FIXED'),('TWO CORE CT, CTR','MSLD'),
+ ('- CORE 1','MSLD'),('- CORE 2','MSLD'),('SUITABLE FOR','DIS'),
+ ('CT SECONDARY TERMINAL ON P2 SIDE','EDITABLE_FIXED')]
 
 def pdf_pages(data,filename):
  return fitz.open(stream=data,filetype='pdf') if filename.lower().endswith('.pdf') else []
@@ -131,7 +133,7 @@ def designation_qty(des):
  return total or None
 def master_match(description,details,designation):
  s=(description+' '+details).upper()
- if 'CURRENT TRANSFORMER' in s:return 'CT2C-1A'
+ if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if '7SJ6611' in s or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
@@ -166,33 +168,166 @@ def header(msld,dis,client,sales,drawing,esd,wo,prep,voltage):
  s=msld+'\n'+dis
  return {'client':client.strip() or first(r'Client\s*:?\s*([^\n]+)',s),'sales_ref':sales.strip() or first(r'Sales\s*Ref\.?\s*:?\s*([^\n]+)',s),'drawing':drawing.strip() or first(r'Drg\.?\s*No\.?\s*:?\s*([^\n]+)',s),'esd':esd.strip() or first(r'\b(SED\d+)\b',s) or first(r'ESD\s*No\.?\s*:?\s*([^\n]+)',s),'wo':wo.strip() or first(r'W\.?O\.?\s*No\.?\s*:?\s*([^\n]+)',s),'prep_by':prep.strip(),'voltage':norm_voltage(voltage)}
 
-def extract_ct_lines(msld_text,dis_text):
- out={}; out['code']=first(r'\b(CT\d+[A-Z0-9-]*)\b',msld_text) or 'CT1502C-1A'; out['body']=first(r'(CURRENT TRANSFORMER\s+EPOXY CAST RESIN\s*\(WOUND TYPE\))',msld_text) or 'CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)'; out['stc']=first(r'(SHORT TIME CURRENT\s*:\s*[^\n]+)',msld_text) or first(r'(STC\s*:\s*[^\n]+)',msld_text)
- if out['stc'] and out['stc'].upper().startswith('STC:'):out['stc']='- SHORT TIME CURRENT : '+out['stc'].split(':',1)[1].strip()
- out['ctr']=first(r'(TWO\s+CORE\s+CT\s*,?\s*CTR\s*:\s*[^\n]+)',msld_text)
- if not out['ctr']:
-  ratio=first(r'\bCTR\s*:\s*([^,\n]+)',msld_text)
-  if ratio:out['ctr']='TWO CORE CT, CTR: '+ratio
- core1=first(r'(CORE\s*1\s*:\s*[^\n]+)',msld_text); core2=first(r'(CORE\s*2\s*:\s*[^\n]+)',msld_text); out['core1']='- '+core1 if core1 and not core1.startswith('-') else core1; out['core2']='- '+core2 if core2 and not core2.startswith('-') else core2
- return out
+def clean_value(value):
+    if not value:
+        return ''
+    value = value.replace('\\n', ' ')
+    value = re.sub(r'\\s+', ' ', value)
+    return value.strip()
 
-def ct_spec(msld_text,dis_text):
- m=extract_ct_lines(msld_text,dis_text); lines=[]
- for template,source in CT_TEMPLATE:
-  value=template
-  if template=='CT1502C-1A':value=m['code']
-  elif template=='CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)':value=m['body']
-  elif template.startswith('- SHORT TIME CURRENT'):value=m['stc'] or template
-  elif template.startswith('TWO CORE CT'):value=m['ctr'] or template
-  elif template.startswith('- CORE 1'):value=m['core1'] or template
-  elif template.startswith('- CORE 2'):value=m['core2'] or template
-  lines.append(value)
- return lines
+def first_match(pattern, text, flags=re.IGNORECASE):
+    if not text:
+        return ''
+    m = re.search(pattern, text, flags)
+    return clean_value(m.group(1)) if m else ''
+
+def extract_ct_ratio(msld_text):
+    for pattern in [
+        r'\\bCTR\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*/',
+        r'\\bCT\\s*RATIO\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*/',
+    ]:
+        value = first_match(pattern, msld_text)
+        if value:
+            return value
+    return ''
+
+def extract_ct_secondary_current(msld_text):
+    for pattern in [
+        r'\\bCTR\\s*:\\s*[0-9]+(?:\\.[0-9]+)?\\s*/\\s*[0-9]+(?:\\s*-\\s*)?([0-9]+(?:\\.[0-9]+)?)\\s*A\\b',
+        r'\\bCTR\\s*:\\s*[0-9]+(?:\\.[0-9]+)?\\s*/\\s*([0-9]+(?:\\.[0-9]+)?)\\s*A\\b',
+    ]:
+        m = re.search(pattern, msld_text or '', re.IGNORECASE)
+        if m:
+            return f'{m.group(1)}A'
+    return ''
+
+def extract_ct_core_count(msld_text):
+    cores = re.findall(r'\\bCORE\\s*([0-9]+)\\s*:', msld_text or '', re.IGNORECASE)
+    return max((int(x) for x in cores), default=0)
+
+def generate_ct_code(msld_text):
+    ratio = extract_ct_ratio(msld_text)
+    secondary = extract_ct_secondary_current(msld_text)
+    core_count = extract_ct_core_count(msld_text) or 1
+    return f'CT{ratio}{core_count}C-{secondary}' if ratio and secondary else ''
+
+def extract_ct_type(msld_text):
+    for pattern in [
+        r'(EPOXY\\s+CAST\\s+RESIN\\s*\\(\\s*WOUND\\s+TYPE\\s*\\))',
+        r'(WOUND\\s+TYPE)',
+        r'(WINDOW\\s+TYPE)',
+    ]:
+        value = first_match(pattern, msld_text)
+        if value:
+            return value.upper()
+    return ''
+
+def build_ct_description(msld_text):
+    ct_type = extract_ct_type(msld_text)
+    return f'CURRENT TRANSFORMER {ct_type}' if ct_type else 'CURRENT TRANSFORMER'
+
+def extract_ct_core(msld_text, core_number):
+    if not msld_text:
+        return ''
+    next_core = core_number + 1
+    pattern = (
+        rf'CORE\\s*{core_number}\\s*:\\s*(.*?)'
+        rf'(?=,\\s*CORE\\s*{next_core}\\s*:|'
+        rf'\\n\\s*CORE\\s*{next_core}\\s*:|$)'
+    )
+    m = re.search(pattern, msld_text, re.IGNORECASE | re.DOTALL)
+    if not m:
+        return ''
+    value = clean_value(m.group(1))
+    return f'- CORE {core_number}: {value}' if value else ''
+
+def extract_ct_ctr(msld_text):
+    m = re.search(r'\\bCTR\\s*:\\s*([^\\n]+)', msld_text or '', re.IGNORECASE)
+    return clean_value(m.group(1)) if m else ''
+
+def build_ctr_line(msld_text):
+    ctr = extract_ct_ctr(msld_text)
+    if not ctr:
+        return ''
+    prefix = 'SINGLE CORE CT' if extract_ct_core_count(msld_text) == 1 else 'TWO CORE CT'
+    return f'{prefix}, CTR: {ctr}'
+
+def extract_ct_make(dis_text):
+    for pattern in [
+        r'CT\\s*/\\s*PT\\s+([A-Za-z0-9/&.\\- ]+)',
+        r'CT\\s*/\\s*PT.*?([A-Za-z][A-Za-z0-9/&.\\- ]+)',
+    ]:
+        value = first_match(pattern, dis_text or '')
+        if value:
+            return value
+    return ''
+
+def extract_rated_voltage(dis_text):
+    return first_match(r'1\\.03\\.00\\s+Rated\\s+operational\\s+voltage\\s*:\\s*([^\\n]+)', dis_text or '')
+
+def extract_frequency(dis_text):
+    value = first_match(r'1\\.02\\.00\\s+Main\\s+System\\s*:\\s*[^\\n]*?([0-9]+(?:\\.[0-9]+)?)\\s*Hz', dis_text or '')
+    return f'{value}Hz' if value else ''
+
+def extract_bil(dis_text):
+    values = []
+    for pattern in [
+        r'1\\.04\\.00\\s+Rated\\s+insulation\\s+voltage\\s*:\\s*([^\\n]+)',
+        r'1\\.06\\.00\\s+Dry\\s+Frequency\\s+withstand\\s+voltage\\s*:\\s*([^\\n]+)',
+        r'1\\.07\\.00\\s+Rated\\s+impulse\\s+withstand\\s+voltage\\s*:\\s*([^\\n]+)',
+    ]:
+        value = first_match(pattern, dis_text or '')
+        if not value:
+            return ''
+        m = re.search(r'([0-9]+(?:\\.[0-9]+)?)', value)
+        if not m:
+            return ''
+        values.append(m.group(1))
+    return '/'.join(values) + 'KVp'
+
+def extract_panel_suitability(dis_text):
+    value = first_match(r'2\\.02\\.01\\s+Location\\s*:\\s*([^\\n]+)', dis_text or '')
+    if value:
+        return value
+    m = re.search(r'(SUITABLE\\s+FOR[^\\n]+PANEL)', dis_text or '', re.IGNORECASE)
+    return clean_value(m.group(1)) if m else ''
+
+def ct_spec(msld_text, dis_text):
+    ct_code = generate_ct_code(msld_text)
+    ct_make = extract_ct_make(dis_text)
+    ct_description = build_ct_description(msld_text)
+    rated_voltage = extract_rated_voltage(dis_text)
+    frequency = extract_frequency(dis_text)
+    stc = first_match(r'(?:SHORT\\s+TIME\\s+CURRENT|STC)\\s*:?\\s*([^\\n]+)', msld_text or '')
+    bil = extract_bil(dis_text)
+    ctr_line = build_ctr_line(msld_text)
+    core1 = extract_ct_core(msld_text, 1)
+    core2 = extract_ct_core(msld_text, 2)
+    panel = extract_panel_suitability(dis_text)
+
+    return [
+        ct_code or 'CT',
+        f'{ct_make.upper()} MAKE' if ct_make else '',
+        ct_description,
+        '- SINGLE PHASE, AS PER IS/IEC STANDARD',
+        f'- RATED VOLTAGE : {rated_voltage}' if rated_voltage else '- RATED VOLTAGE :',
+        f'- RATED FREQUENCY : {frequency}' if frequency else '- RATED FREQUENCY :',
+        f'- SHORT TIME CURRENT : {stc}' if stc else '- SHORT TIME CURRENT :',
+        f'- BIL: {bil}' if bil else '- BIL:',
+        'INSULATION CLASS:-B',
+        'AS GIVEN BELOW:-',
+        ctr_line or 'TWO CORE CT, CTR:',
+        core1 or '- CORE 1:',
+        core2 or '- CORE 2:',
+        panel or 'SUITABLE FOR',
+        'CT SECONDARY TERMINAL ON P2 SIDE'
+    ]
+
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0]['name'] if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity',1) if feeder_info else ''; rows=[]
  for i,r in enumerate(records,1):
-  if r['master_code']=='CT2C-1A':spec_lines=ct_spec(msld_text,dis_text); spec='\n'.join(spec_lines); editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
+  if r['master_code']=='CT':spec_lines=ct_spec(msld_text,dis_text); spec='\n'.join(spec_lines); editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
   else:spec=r['description']+((' | '+r['details']) if r['details'] else ''); spec_lines=[clean(spec)] if spec else []; editable_fields=[]
   rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':r['quantity'],'eqpt_qty':r['quantity'],'mpd':'','amd':'','master_code':r['master_code']})
  return rows,feeder_name,feeder_qty
