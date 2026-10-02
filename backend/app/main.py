@@ -181,53 +181,56 @@ def first_match(pattern, text, flags=re.IGNORECASE):
     m = re.search(pattern, text, flags)
     return clean_value(m.group(1)) if m else ''
 
-def extract_ct_ratio(msld_text):
+def extract_ct_ratio(ct_text):
     for pattern in [
         r'\bCTR\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*/',
         r'\bCT\s*RATIO\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*/',
     ]:
-        value = first_match(pattern, msld_text)
+        value = first_match(pattern, ct_text)
         if value:
             return value
     return ''
 
-def extract_ct_secondary_current(msld_text):
+def extract_ct_secondary_current(ct_text):
     for pattern in [
         r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?\s*/\s*[0-9]+(?:\s*-\s*)?([0-9]+(?:\.[0-9]+)?)\s*A\b',
         r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*A\b',
     ]:
-        m = re.search(pattern, msld_text or '', re.IGNORECASE)
+        m = re.search(pattern, ct_text or '', re.IGNORECASE)
         if m:
             return f'{m.group(1)}A'
     return ''
 
-def extract_ct_core_count(msld_text):
-    cores = re.findall(r'\bCORE\s*([0-9]+)\s*:', msld_text or '', re.IGNORECASE)
+def extract_ct_core_count(ct_text):
+    value = first_match(r'NO\.?\s*OF\s*CORES\s*[:\-]?\s*(\d+)', ct_text)
+    if value:
+        return int(value)
+    cores = re.findall(r'\bCORE\s*([0-9]+)\s*:', ct_text or '', re.IGNORECASE)
     return max((int(x) for x in cores), default=0)
 
-def generate_ct_code(msld_text):
-    ratio = extract_ct_ratio(msld_text)
-    secondary = extract_ct_secondary_current(msld_text)
-    core_count = extract_ct_core_count(msld_text) or 1
+def generate_ct_code(ct_text):
+    ratio = extract_ct_ratio(ct_text)
+    secondary = extract_ct_secondary_current(ct_text)
+    core_count = extract_ct_core_count(ct_text) or 1
     return f'CT{ratio}{core_count}C-{secondary}' if ratio and secondary else ''
 
-def extract_ct_type(msld_text):
+def extract_ct_type(ct_text):
     for pattern in [
         r'(EPOXY\s+CAST\s+RESIN\s*\(\s*WOUND\s+TYPE\s*\))',
         r'(WOUND\s+TYPE)',
         r'(WINDOW\s+TYPE)',
     ]:
-        value = first_match(pattern, msld_text)
+        value = first_match(pattern, ct_text)
         if value:
             return value.upper()
     return ''
 
-def build_ct_description(msld_text):
-    ct_type = extract_ct_type(msld_text)
+def build_ct_description(ct_text):
+    ct_type = extract_ct_type(ct_text)
     return f'CURRENT TRANSFORMER {ct_type}' if ct_type else 'CURRENT TRANSFORMER'
 
-def extract_ct_core(msld_text, core_number):
-    if not msld_text:
+def extract_ct_core(ct_text, core_number):
+    if not ct_text:
         return ''
     next_core = core_number + 1
     pattern = (
@@ -235,23 +238,22 @@ def extract_ct_core(msld_text, core_number):
         rf'(?=,\s*CORE\s*{next_core}\s*:|'
         rf'\n\s*CORE\s*{next_core}\s*:|$)'
     )
-    m = re.search(pattern, msld_text, re.IGNORECASE | re.DOTALL)
+    m = re.search(pattern, ct_text, re.IGNORECASE | re.DOTALL)
     if not m:
         return ''
     value = clean_value(m.group(1))
     return f'- CORE {core_number}: {value}' if value else ''
 
-def extract_ct_ctr(msld_text):
-    m = re.search(r'\bCTR\s*:\s*([^\n]+)', msld_text or '', re.IGNORECASE)
+def extract_ct_ctr(ct_text):
+    m = re.search(r'\bCTR\s*:\s*([^\n]+)', ct_text or '', re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
-def build_ctr_line(msld_text):
-    ctr = extract_ct_ctr(msld_text)
+def build_ctr_line(ct_text):
+    ctr = extract_ct_ctr(ct_text)
     if not ctr:
         return ''
-    prefix = 'SINGLE CORE CT' if extract_ct_core_count(msld_text) == 1 else 'TWO CORE CT'
+    prefix = 'SINGLE CORE CT' if extract_ct_core_count(ct_text) == 1 else 'TWO CORE CT'
     return f'{prefix}, CTR: {ctr}'
-
 def extract_ct_make(dis_text):
     for pattern in [
         r'CT\s*/\s*PT\s+([A-Za-z0-9/&.\- ]+)',
@@ -327,7 +329,9 @@ def ct_spec(msld_text, dis_text):
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0]['name'] if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity',1) if feeder_info else ''; rows=[]
  for i,r in enumerate(records,1):
-  if r['master_code']=='CT':spec_lines=ct_spec(msld_text,dis_text); spec='\n'.join(spec_lines); editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
+  if r['master_code']=='CT':
+   ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
+   spec_lines=ct_spec(ct_row_text,dis_text); spec='\n'.join(spec_lines); editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
   else:spec=r['description']+((' | '+r['details']) if r['details'] else ''); spec_lines=[clean(spec)] if spec else []; editable_fields=[]
   rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':r['quantity'],'eqpt_qty':r['quantity'],'mpd':'','amd':'','master_code':r['master_code']})
  return rows,feeder_name,feeder_qty
