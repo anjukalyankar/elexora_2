@@ -171,8 +171,8 @@ def header(msld,dis,client,sales,drawing,esd,wo,prep,voltage):
 def clean_value(value):
     if not value:
         return ''
-    value = value.replace('\\n', ' ')
-    value = re.sub(r'\\s+', ' ', value)
+    value = value.replace('\n', ' ')
+    value = re.sub(r'\s+', ' ', value)
     return value.strip()
 
 def first_match(pattern, text, flags=re.IGNORECASE):
@@ -183,8 +183,8 @@ def first_match(pattern, text, flags=re.IGNORECASE):
 
 def extract_ct_ratio(msld_text):
     for pattern in [
-        r'\\bCTR\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*/',
-        r'\\bCT\\s*RATIO\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*/',
+        r'\bCTR\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*/',
+        r'\bCT\s*RATIO\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*/',
     ]:
         value = first_match(pattern, msld_text)
         if value:
@@ -193,8 +193,8 @@ def extract_ct_ratio(msld_text):
 
 def extract_ct_secondary_current(msld_text):
     for pattern in [
-        r'\\bCTR\\s*:\\s*[0-9]+(?:\\.[0-9]+)?\\s*/\\s*[0-9]+(?:\\s*-\\s*)?([0-9]+(?:\\.[0-9]+)?)\\s*A\\b',
-        r'\\bCTR\\s*:\\s*[0-9]+(?:\\.[0-9]+)?\\s*/\\s*([0-9]+(?:\\.[0-9]+)?)\\s*A\\b',
+        r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?\s*/\s*[0-9]+(?:\s*-\s*)?([0-9]+(?:\.[0-9]+)?)\s*A\b',
+        r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*A\b',
     ]:
         m = re.search(pattern, msld_text or '', re.IGNORECASE)
         if m:
@@ -202,7 +202,7 @@ def extract_ct_secondary_current(msld_text):
     return ''
 
 def extract_ct_core_count(msld_text):
-    cores = re.findall(r'\\bCORE\\s*([0-9]+)\\s*:', msld_text or '', re.IGNORECASE)
+    cores = re.findall(r'\bCORE\s*([0-9]+)\s*:', msld_text or '', re.IGNORECASE)
     return max((int(x) for x in cores), default=0)
 
 def generate_ct_code(msld_text):
@@ -213,9 +213,9 @@ def generate_ct_code(msld_text):
 
 def extract_ct_type(msld_text):
     for pattern in [
-        r'(EPOXY\\s+CAST\\s+RESIN\\s*\\(\\s*WOUND\\s+TYPE\\s*\\))',
-        r'(WOUND\\s+TYPE)',
-        r'(WINDOW\\s+TYPE)',
+        r'(EPOXY\s+CAST\s+RESIN\s*\(\s*WOUND\s+TYPE\s*\))',
+        r'(WOUND\s+TYPE)',
+        r'(WINDOW\s+TYPE)',
     ]:
         value = first_match(pattern, msld_text)
         if value:
@@ -231,9 +231,9 @@ def extract_ct_core(msld_text, core_number):
         return ''
     next_core = core_number + 1
     pattern = (
-        rf'CORE\\s*{core_number}\\s*:\\s*(.*?)'
-        rf'(?=,\\s*CORE\\s*{next_core}\\s*:|'
-        rf'\\n\\s*CORE\\s*{next_core}\\s*:|$)'
+        rf'CORE\s*{core_number}\s*:\s*(.*?)'
+        rf'(?=,\s*CORE\s*{next_core}\s*:|'
+        rf'\n\s*CORE\s*{next_core}\s*:|$)'
     )
     m = re.search(pattern, msld_text, re.IGNORECASE | re.DOTALL)
     if not m:
@@ -242,7 +242,7 @@ def extract_ct_core(msld_text, core_number):
     return f'- CORE {core_number}: {value}' if value else ''
 
 def extract_ct_ctr(msld_text):
-    m = re.search(r'\\bCTR\\s*:\\s*([^\\n]+)', msld_text or '', re.IGNORECASE)
+    m = re.search(r'\bCTR\s*:\s*([^\n]+)', msld_text or '', re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
 def build_ctr_line(msld_text):
@@ -254,8 +254,8 @@ def build_ctr_line(msld_text):
 
 def extract_ct_make(dis_text):
     for pattern in [
-        r'CT\\s*/\\s*PT\\s+([A-Za-z0-9/&.\\- ]+)',
-        r'CT\\s*/\\s*PT.*?([A-Za-z][A-Za-z0-9/&.\\- ]+)',
+        r'CT\s*/\s*PT\s+([A-Za-z0-9/&.\- ]+)',
+        r'CT\s*/\s*PT.*?([A-Za-z][A-Za-z0-9/&.\- ]+)',
     ]:
         value = first_match(pattern, dis_text or '')
         if value:
@@ -263,33 +263,33 @@ def extract_ct_make(dis_text):
     return ''
 
 def extract_rated_voltage(dis_text):
-    return first_match(r'1\\.03\\.00\\s+Rated\\s+operational\\s+voltage\\s*:\\s*([^\\n]+)', dis_text or '')
+    return first_match(r'1\.03\.00\s+Rated\s+operational\s+voltage\s*:\s*([^\n]+)', dis_text or '')
 
 def extract_frequency(dis_text):
-    value = first_match(r'1\\.02\\.00\\s+Main\\s+System\\s*:\\s*[^\\n]*?([0-9]+(?:\\.[0-9]+)?)\\s*Hz', dis_text or '')
+    value = first_match(r'1\.02\.00\s+Main\s+System\s*:\s*[^\n]*?([0-9]+(?:\.[0-9]+)?)\s*Hz', dis_text or '')
     return f'{value}Hz' if value else ''
 
 def extract_bil(dis_text):
     values = []
     for pattern in [
-        r'1\\.04\\.00\\s+Rated\\s+insulation\\s+voltage\\s*:\\s*([^\\n]+)',
-        r'1\\.06\\.00\\s+Dry\\s+Frequency\\s+withstand\\s+voltage\\s*:\\s*([^\\n]+)',
-        r'1\\.07\\.00\\s+Rated\\s+impulse\\s+withstand\\s+voltage\\s*:\\s*([^\\n]+)',
+        r'1\.04\.00\s+Rated\s+insulation\s+voltage\s*:\s*([^\n]+)',
+        r'1\.06\.00\s+Dry\s+Frequency\s+withstand\s+voltage\s*:\s*([^\n]+)',
+        r'1\.07\.00\s+Rated\s+impulse\s+withstand\s+voltage\s*:\s*([^\n]+)',
     ]:
         value = first_match(pattern, dis_text or '')
         if not value:
             return ''
-        m = re.search(r'([0-9]+(?:\\.[0-9]+)?)', value)
+        m = re.search(r'([0-9]+(?:\.[0-9]+)?)', value)
         if not m:
             return ''
         values.append(m.group(1))
     return '/'.join(values) + 'KVp'
 
 def extract_panel_suitability(dis_text):
-    value = first_match(r'2\\.02\\.01\\s+Location\\s*:\\s*([^\\n]+)', dis_text or '')
+    value = first_match(r'2\.02\.01\s+Location\s*:\s*([^\n]+)', dis_text or '')
     if value:
         return value
-    m = re.search(r'(SUITABLE\\s+FOR[^\\n]+PANEL)', dis_text or '', re.IGNORECASE)
+    m = re.search(r'(SUITABLE\s+FOR[^\n]+PANEL)', dis_text or '', re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
 def ct_spec(msld_text, dis_text):
@@ -298,7 +298,7 @@ def ct_spec(msld_text, dis_text):
     ct_description = build_ct_description(msld_text)
     rated_voltage = extract_rated_voltage(dis_text)
     frequency = extract_frequency(dis_text)
-    stc = first_match(r'(?:SHORT\\s+TIME\\s+CURRENT|STC)\\s*:?\\s*([^\\n]+)', msld_text or '')
+    stc = first_match(r'(?:SHORT\s+TIME\s+CURRENT|STC)\s*:?\s*([^\n]+)', msld_text or '')
     bil = extract_bil(dis_text)
     ctr_line = build_ctr_line(msld_text)
     core1 = extract_ct_core(msld_text, 1)
