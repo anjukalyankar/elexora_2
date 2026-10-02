@@ -150,7 +150,12 @@ def extract_fixed_table(data,filename):
   if feeder_type:feeders.append({'name':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring,'quantity':1})
   left=rows_by_designation(words,275,320,490,790)
   for i,(y,des) in enumerate(left):
-   next_y=left[i+1][0] if i+1<len(left) else 790; lo,hi=max(490,y-9),min(790,(y+next_y)/2); desc=text_in_band(words,50,275,lo,hi); details=text_in_band(words,320,615,lo,hi)
+   next_y=left[i+1][0] if i+1<len(left) else 790
+   # T1-T3 is a two-line CT block in the fixed MSLD template. Capture the
+   # complete technical-data block rather than only one visual row.
+   row_top = y-18 if des.upper() == 'T1-T3' else y-9
+   lo,hi=max(490,row_top),min(790,(y+next_y)/2)
+   desc=text_in_band(words,50,275,lo,hi); details=text_in_band(words,320,615,lo,hi)
    if desc or details:records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
   for ymin,ymax in [(35,345),(350,725)]:
    right=rows_by_designation(words,840,880,ymin,ymax)
@@ -228,33 +233,52 @@ def build_ctr_line(ct_text):
     word={1:'SINGLE',2:'TWO',3:'THREE'}.get(n,str(n))
     return f'{word} CORE CT'
 
+def dis_search_text(dis_text):
+    return re.sub(r'\s+', ' ', dis_text or '').strip()
+
+def dis_field(dis_text, code, label):
+    text = dis_search_text(dis_text)
+    pattern = rf'{re.escape(code)}\s+{label}\s*:\s*(.*?)(?=\s+\d{{1,2}}\.\d{{2}}\.\d{{2}}\s+|$)'
+    m = re.search(pattern, text, re.IGNORECASE)
+    return clean_value(m.group(1)) if m else ''
+
 def extract_ct_make(dis_text):
-    for pattern in [
-        r'CT\s*/\s*PT\s+([A-Za-z0-9/&.\- ]+)',
-        r'CT\s*/\s*PT.*?([A-Za-z][A-Za-z0-9/&.\- ]+)',
-    ]:
-        value = first_match(pattern, dis_text or '')
-        if value:
-            return value
+    text = dis_search_text(dis_text)
+    patterns = [
+        r'CT\s*/\s*PT\s*:?\s*([A-Za-z0-9/&.\-]+)',
+        r'(?:CT\s+MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*:?\s*([A-Za-z0-9/&.\-]+)',
+        r'\bMAKE\s*:?\s*([A-Za-z][A-Za-z0-9/&.\-]*)',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            value = clean_value(m.group(1))
+            if value and value.upper() not in {'OF','CT','PT'}:
+                return value
     return ''
 
 def extract_rated_voltage(dis_text):
-    return first_match(r'1\.03\.00\s+Rated\s+operational\s+voltage\s*:\s*([^\n]+)', dis_text or '')
+    value = dis_field(dis_text, '1.03.00', r'Rated\s+operational\s+voltage')
+    if not value:
+        text = dis_search_text(dis_text)
+        value = first_match(r'Rated\s+operational\s+voltage\s*:\s*([^\d\s]*\s*[0-9]+(?:\.[0-9]+)?\s*(?:KV|kV))', text)
+    return clean_value(value)
 
 def extract_frequency(dis_text):
-    value = first_match(r'1\.02\.00\s+Main\s+System\s*:\s*[^\n]*?([0-9]+(?:\.[0-9]+)?)\s*Hz', dis_text or '')
-    return f'{value}Hz' if value else ''
+    value = dis_field(dis_text, '1.02.00', r'Main\s+System')
+    text = value or dis_search_text(dis_text)
+    m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*Hz', text, re.IGNORECASE)
+    return f'{m.group(1)}Hz' if m else ''
 
 def extract_bil(dis_text):
     values = []
-    for pattern in [
-        r'1\.04\.00\s+Rated\s+insulation\s+voltage\s*:\s*([^\n]+)',
-        r'1\.06\.00\s+Dry\s+Frequency\s+withstand\s+voltage\s*:\s*([^\n]+)',
-        r'1\.07\.00\s+Rated\s+impulse\s+withstand\s+voltage\s*:\s*([^\n]+)',
-    ]:
-        value = first_match(pattern, dis_text or '')
-        if not value:
-            return ''
+    fields = [
+        ('1.04.00', r'Rated\s+insulation\s+voltage'),
+        ('1.06.00', r'Dry\s+Frequency\s+withstand\s+voltage'),
+        ('1.07.00', r'Rated\s+impulse\s+withstand\s+voltage'),
+    ]
+    for code, label in fields:
+        value = dis_field(dis_text, code, label)
         m = re.search(r'([0-9]+(?:\.[0-9]+)?)', value)
         if not m:
             return ''
@@ -262,10 +286,11 @@ def extract_bil(dis_text):
     return '/'.join(values) + 'KVp'
 
 def extract_panel_suitability(dis_text):
-    value = first_match(r'2\.02\.01\s+Location\s*:\s*([^\n]+)', dis_text or '')
+    value = dis_field(dis_text, '2.02.01', r'Location')
     if value:
         return value
-    m = re.search(r'(SUITABLE\s+FOR[^\n]+PANEL)', dis_text or '', re.IGNORECASE)
+    text = dis_search_text(dis_text)
+    m = re.search(r'(SUITABLE\s+FOR[^\n]+?PANEL)', text, re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
 def ct_spec(ct_text, dis_text):
@@ -274,7 +299,7 @@ def ct_spec(ct_text, dis_text):
     ct_description=build_ct_description(ct_text)
     rated_voltage=extract_rated_voltage(dis_text)
     frequency=extract_frequency(dis_text)
-    stc=first_match(r'(?:SHORT\\s+TIME\\s+CURRENT|STC)\\s*:?\\s*([^\\n]+)',ct_text or '')
+    stc=first_match(r'(?:SHORT\s+TIME\s+CURRENT|STC)\s*:?\s*([^\n]+)',ct_text or '')
     bil=extract_bil(dis_text)
     cores=extract_ct_core_lines(ct_text)
     panel=extract_panel_suitability(dis_text)
