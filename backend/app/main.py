@@ -194,9 +194,11 @@ def extract_ct_core_lines(ct_text):
     if labeled:
         return [clean_value(v) for _, v in sorted(labeled, key=lambda x:int(x[0]))]
     values=[]
-    for m in re.finditer(r'\bCTR\s*:\s*([^\n]+)', ct_text or '', re.I):
+    # The fixed MSLD extraction normalizes line breaks, so multiple CTR
+    # entries can arrive on the same line. Stop each core at the next CTR
+    # (or STC) instead of consuming the whole technical-data string.
+    for m in re.finditer(r'\bCTR\s*:\s*(.*?)(?=\s+CTR\s*:|\s+STC\s*:|\s+SHORT\s+TIME\s+CURRENT\s*:|$)', ct_text or '', re.I):
         value=clean_value(m.group(1))
-        value=re.split(r'\s+(?:STC|SHORT\s+TIME\s+CURRENT)\s*:',value,1,flags=re.I)[0]
         if value: values.append(value)
     return values
 
