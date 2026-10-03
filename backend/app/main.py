@@ -286,8 +286,17 @@ def extract_bil(dis_text):
     return '/'.join(values) + 'KVp'
 
 def extract_panel_suitability(dis_text):
+    text = dis_search_text(dis_text)
     value = dis_field(dis_text, '2.02.01', r'Location')
-    return clean_value(value) if value else ''
+    value = clean_value(value) if value else ''
+    # The fixed DIS identifies the panel location/type and may place the
+    # panel width in the same field or immediately elsewhere in the text.
+    if value and re.search(r'\b\d{3,4}\s*mm\s*WIDTH\s*PANEL\b', value, re.I):
+        return value
+    width = re.search(r'\b\d{3,4}\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
+    if value and width:
+        return f'{value} - {clean_value(width.group(0))}'
+    return value or (clean_value(width.group(0)) if width else '')
 
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
