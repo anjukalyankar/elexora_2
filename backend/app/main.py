@@ -124,11 +124,14 @@ def rows_by_designation(words,xmin,xmax,ymin,ymax):
 def designation_qty(des):
  total=0
  for part in re.split(r'[,/]',(des or '').upper()):
-  part=part.strip(); m=re.fullmatch(r'[A-Z]+(\d+)-[A-Z]?(\d+)',part)
+  part=part.strip()
+  # Supports both letter-prefixed (F1-F3) and digit+letter (1H1-1H3)
+  # designations used by the fixed MSLD template.
+  m=re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)(\d+)-(?:[A-Z]+|\d+[A-Z]+)?(\d+)',part)
   if m: total+=max(1,int(m.group(2))-int(m.group(1))+1)
-  elif re.fullmatch(r'[A-Z]+\d+',part): total+=1
+  elif re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)\d+',part): total+=1
  if total==0 and des:
-  m=re.fullmatch(r'[A-Z]+(\d+)-[A-Z]+(\d+)',des.upper())
+  m=re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)(\d+)-(?:[A-Z]+|\d+[A-Z]+)(\d+)',des.upper())
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
 def master_match(description,details,designation):
