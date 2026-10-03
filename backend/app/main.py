@@ -239,18 +239,18 @@ def build_ctr_line(ct_text):
 def dis_search_text(dis_text):
     return re.sub(r'\s+', ' ', dis_text or '').strip()
 
-def dis_field(dis_text, code, label):
+def dis_field(dis_text, code, label=''):
+    # The DIS is a fixed template. Use the numbered field as the primary
+    # anchor because PDF text extraction can change spacing or wording.
     text = dis_search_text(dis_text)
-    pattern = rf'{re.escape(code)}\s+{label}\s*:\s*(.*?)(?=\s+\d{{1,2}}\.\d{{2}}\.\d{{2}}\s+|$)'
+    pattern = rf'{re.escape(code)}\s*(?:{label}\s*)?:?\s*(.*?)(?=\s+\d{{1,2}}\.\d{{2}}\.\d{{2}}\s+|$)'
     m = re.search(pattern, text, re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
 def extract_ct_make(dis_text):
     text = dis_search_text(dis_text)
     patterns = [
-        r'CT\s*/\s*PT\s*:?\s*([A-Za-z0-9/&.\-]+)',
-        r'(?:CT\s+MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*:?\s*([A-Za-z0-9/&.\-]+)',
-        r'\bMAKE\s*:?\s*([A-Za-z][A-Za-z0-9/&.\-]*)',
+        r'(?:CT\s*/\s*PT|CT\s+MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT|\bMAKE)\s*:?\s*([A-Za-z][A-Za-z0-9/&.\- ]*?)(?=\s+\d{1,2}\.\d{2}\.\d{2}\s+|$)',
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.IGNORECASE)
@@ -261,11 +261,13 @@ def extract_ct_make(dis_text):
     return ''
 
 def extract_rated_voltage(dis_text):
-    value = dis_field(dis_text, '1.03.00', r'Rated\s+operational\s+voltage')
-    if not value:
-        text = dis_search_text(dis_text)
-        value = first_match(r'Rated\s+operational\s+voltage\s*:\s*([^\d\s]*\s*[0-9]+(?:\.[0-9]+)?\s*(?:KV|kV))', text)
-    return clean_value(value)
+    value = dis_field(dis_text, '1.03.00', r'(?:Rated\s+(?:operational\s+)?voltage)')
+    m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(KV|kV)', value or '', re.IGNORECASE)
+    if m:
+        return f'{m.group(1)}kV'
+    text = dis_search_text(dis_text)
+    m = re.search(r'Rated\s+(?:operational\s+)?voltage\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*(KV|kV)', text, re.IGNORECASE)
+    return f'{m.group(1)}kV' if m else ''
 
 def extract_frequency(dis_text):
     value = dis_field(dis_text, '1.02.00', r'Main\s+System')
@@ -275,13 +277,8 @@ def extract_frequency(dis_text):
 
 def extract_bil(dis_text):
     values = []
-    fields = [
-        ('1.04.00', r'Rated\s+insulation\s+voltage'),
-        ('1.06.00', r'Dry\s+Frequency\s+withstand\s+voltage'),
-        ('1.07.00', r'Rated\s+impulse\s+withstand\s+voltage'),
-    ]
-    for code, label in fields:
-        value = dis_field(dis_text, code, label)
+    for code in ('1.04.00','1.06.00','1.07.00'):
+        value = dis_field(dis_text, code)
         m = re.search(r'([0-9]+(?:\.[0-9]+)?)', value)
         if not m:
             return ''
@@ -290,11 +287,7 @@ def extract_bil(dis_text):
 
 def extract_panel_suitability(dis_text):
     value = dis_field(dis_text, '2.02.01', r'Location')
-    if value:
-        return value
-    text = dis_search_text(dis_text)
-    m = re.search(r'(SUITABLE\s+FOR[^\n]+?PANEL)', text, re.IGNORECASE)
-    return clean_value(m.group(1)) if m else ''
+    return clean_value(value) if value else ''
 
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
@@ -302,7 +295,7 @@ def ct_spec(ct_text, dis_text):
     ct_description=build_ct_description(ct_text)
     rated_voltage=extract_rated_voltage(dis_text)
     frequency=extract_frequency(dis_text)
-    stc=first_match(r'(?:SHORT\s+TIME\s+CURRENT|STC)\s*:?\s*([^\n]+)',ct_text or '')
+    stc=first_match(r'(?:SHORT\s+TIME\s+CURRENT|STC)\s*:?\s*(.*?)(?=\s+CTR\s*:|\s+CORE\s*\d+\s*:|\s+STC\s*:|\s*$)',ct_text or '')
     bil=extract_bil(dis_text)
     cores=extract_ct_core_lines(ct_text)
     panel=extract_panel_suitability(dis_text)
