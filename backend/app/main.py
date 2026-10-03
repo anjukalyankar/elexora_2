@@ -292,20 +292,18 @@ def extract_bil(dis_text):
     return '/'.join(values) + 'KVp'
 
 def extract_panel_suitability(dis_text):
-    text = dis_search_text(dis_text)
-    # Fixed DIS wording is typically "8BK80 (RD) - 800mm WIDTH PANEL".
-    # First try the complete phrase, then use a bounded fallback so minor
-    # PDF extraction changes (missing brackets/dashes/extra words) do not
-    # make the field disappear.
-    patterns = [
-        r'\b(8BK80)\s*(?:\((?:OD|RD)\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b',
-        r'\b(8BK80)\b.{0,80}?\b(\d{3,4})\s*mm\s*(?:WIDE|WIDTH)\s*PANEL\b',
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, text, re.I)
+    # Source is DIS 2.01.00 "Type of switchboard", not 2.02.01 Location.
+    # Example fixed-template value:
+    # 8BK80(1000mm)+3AH3 VCB
+    value = dis_field(dis_text, '2.01.00', r'Type\s+of\s+switchboard')
+    if value:
+        m = re.search(r'\b(8BK80)\s*\(?\s*(\d{3,4})\s*mm\s*\)?', value, re.I)
         if m:
             return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
-    m = re.search(r'\b([A-Z0-9+]+)\s*(?:\([A-Z0-9]+\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*(?:WIDE|WIDTH)\s*PANEL\b', text, re.I)
+    # Fallback: search the whole DIS only if the numbered field was not
+    # extracted cleanly.
+    text = dis_search_text(dis_text)
+    m = re.search(r'\b(8BK80)\s*\(?\s*(\d{3,4})\s*mm\s*\)?', text, re.I)
     if m:
         return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
     return ''
