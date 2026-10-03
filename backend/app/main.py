@@ -149,8 +149,8 @@ def extract_fixed_table(data,filename):
  pages=pdf_pages(data,filename); records=[]; feeders=[]; warnings=[]
  for page_no,page in enumerate(pages,1):
   if page_no!=1:continue
-  words=page_words(page); feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465)
-  if feeder_type:feeders.append({'name':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring,'quantity':1})
+  words=page_words(page); feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465); feeder_quantity=text_in_band(words,440,520,360,380)
+  if feeder_type or feeder_designation:feeders.append({'name':feeder_designation or feeder_type,'type':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring,'quantity':feeder_quantity or '1'})
   left=rows_by_designation(words,275,320,490,790)
   for i,(y,des) in enumerate(left):
    next_y=left[i+1][0] if i+1<len(left) else 790
@@ -348,7 +348,7 @@ def ct_spec(ct_text, dis_text):
 
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
- feeder_name=feeder_info[0]['name'] if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity',1) if feeder_info else ''; rows=[]
+ feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; rows=[]
  for i,r in enumerate(records,1):
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
