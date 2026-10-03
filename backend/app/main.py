@@ -249,12 +249,14 @@ def dis_field(dis_text, code, label=''):
 
 def extract_ct_make(dis_text):
     text = dis_search_text(dis_text)
-    # Fixed DIS make field. Allow spaces around "/" because PDF extraction
-    # commonly turns "PRAGATI/ECS" into "PRAGATI / ECS".
+    # Fixed DIS make may appear as "PRAGATI MAKE", "PRAGATI/ECS MAKE",
+    # "CT MAKE: PRAGATI", or "MAKE OF CT: PRAGATI". Do not depend on one
+    # exact PDF text layout.
     patterns = [
+        r'\b(PRAGATI\s*/\s*ECS)\s+MAKE\b',
+        r'\b(PRAGATI)\s+MAKE\b',
         r'(?:CT\s*/?\s*MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
         r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
-        r'\b(PRAGATI\s*/\s*ECS)\b',
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.IGNORECASE)
@@ -291,13 +293,19 @@ def extract_bil(dis_text):
 
 def extract_panel_suitability(dis_text):
     text = dis_search_text(dis_text)
-    # The fixed DIS can contain "8BK80 (OD/RD) - 800mm WIDTH PANEL".
-    # Ignore the bracketed variant in the BOM and keep the required
-    # designation + panel width format.
-    m = re.search(r'\b(8BK80)\s*(?:\((?:OD|RD)\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
-    if m:
-        return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
-    m = re.search(r'\b([A-Z0-9+]+)\s*(?:\([A-Z0-9]+\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
+    # Fixed DIS wording is typically "8BK80 (RD) - 800mm WIDTH PANEL".
+    # First try the complete phrase, then use a bounded fallback so minor
+    # PDF extraction changes (missing brackets/dashes/extra words) do not
+    # make the field disappear.
+    patterns = [
+        r'\b(8BK80)\s*(?:\((?:OD|RD)\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b',
+        r'\b(8BK80)\b.{0,80}?\b(\d{3,4})\s*mm\s*(?:WIDE|WIDTH)\s*PANEL\b',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, re.I)
+        if m:
+            return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
+    m = re.search(r'\b([A-Z0-9+]+)\s*(?:\([A-Z0-9]+\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*(?:WIDE|WIDTH)\s*PANEL\b', text, re.I)
     if m:
         return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
     return ''
