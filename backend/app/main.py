@@ -249,17 +249,17 @@ def dis_field(dis_text, code, label=''):
 
 def extract_ct_make(dis_text):
     text = dis_search_text(dis_text)
-    # Prefer the explicit CT make field. The fixed DIS may write the make
-    # as PRAGATI/ECS, CT/MAKE, MAKE OF CT, or a similar labelled value.
+    # Fixed DIS make field. Allow spaces around "/" because PDF extraction
+    # commonly turns "PRAGATI/ECS" into "PRAGATI / ECS".
     patterns = [
-        r'(?:CT\s*/\s*MAKE|CT\s+MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9/&.\-]*)',
-        r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9/&.\-]*)',
+        r'(?:CT\s*/?\s*MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
+        r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
         r'\b(PRAGATI\s*/\s*ECS)\b',
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
-            value = clean_value(m.group(1)).replace(' / ', '/')
+            value = re.sub(r'\s*/\s*', '/', clean_value(m.group(1)))
             if value and value.upper() not in {'OF','CT','PT','MAKE'}:
                 return value
     return ''
@@ -291,16 +291,16 @@ def extract_bil(dis_text):
 
 def extract_panel_suitability(dis_text):
     text = dis_search_text(dis_text)
-    # Prefer the actual panel designation + width when it is present in DIS.
-    # Do not concatenate unrelated words from the Location field.
-    m = re.search(r'\b(8BK80)\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
+    # The fixed DIS can contain "8BK80 (OD/RD) - 800mm WIDTH PANEL".
+    # Ignore the bracketed variant in the BOM and keep the required
+    # designation + panel width format.
+    m = re.search(r'\b(8BK80)\s*(?:\((?:OD|RD)\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
     if m:
         return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
-    m = re.search(r'\b([A-Z0-9+()]+)\s*[-–]\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
+    m = re.search(r'\b([A-Z0-9+]+)\s*(?:\([A-Z0-9]+\))?\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
     if m:
-        return f'{m.group(1)}-{m.group(2)}mm WIDTH PANEL'
-    value = dis_field(dis_text, '2.02.01', r'Location')
-    return clean_value(value) if value else ''
+        return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
+    return ''
 
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
@@ -339,7 +339,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
  for i,r in enumerate(records,1):
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
-   spec_lines=ct_spec(ct_row_text,dis_text); spec='\n'.join(spec_lines); editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
+   spec_lines=ct_spec(ct_row_text,dis_text); spec='\n'.join(spec_lines); editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE'],editable_indices=[8,14]
   else:spec=r['description']+((' | '+r['details']) if r['details'] else ''); spec_lines=[clean(spec)] if spec else []; editable_fields=[]
   rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':r['quantity'],'eqpt_qty':r['quantity'],'mpd':'','amd':'','master_code':r['master_code']})
  return rows,feeder_name,feeder_qty
