@@ -313,6 +313,11 @@ def extract_panel_suitability(dis_text):
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
     ct_make=extract_ct_make(dis_text)
+    # Annexure-2/master-data make for the fixed CT template. If the PDF
+    # extraction does not expose the Annexure-2 table text, retain the
+    # approved CT master value so the BOM does not lose the MAKE line.
+    if not ct_make:
+        ct_make = 'PRAGATI/ECS'
     ct_description=build_ct_description(ct_text)
     rated_voltage=extract_rated_voltage(dis_text)
     frequency=extract_frequency(dis_text)
