@@ -229,7 +229,8 @@ def extract_ct_type(ct_text):
 
 def build_ct_description(ct_text):
     t=extract_ct_type(ct_text)
-    return f'CURRENT TRANSFORMER {t}' if t else 'CURRENT TRANSFORMER'
+    # Fixed CT wording required by the BOM template.
+    return f'CURRENT TRANSFORMER EPOXY CAST RESIN ({t})' if t else 'CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)'
 
 def build_ctr_line(ct_text):
     n=extract_ct_core_count(ct_text)
@@ -254,6 +255,7 @@ def extract_ct_make(dis_text):
     # exact PDF text layout.
     patterns = [
         r'\b(PRAGATI\s*/\s*ECS)\s+MAKE\b',
+        r'\b(PRAGATI\s*/\s*ECS)\b',
         r'\b(PRAGATI)\s+MAKE\b',
         r'(?:CT\s*/?\s*MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
         r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
