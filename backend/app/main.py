@@ -249,14 +249,18 @@ def dis_field(dis_text, code, label=''):
 
 def extract_ct_make(dis_text):
     text = dis_search_text(dis_text)
+    # Prefer the explicit CT make field. The fixed DIS may write the make
+    # as PRAGATI/ECS, CT/MAKE, MAKE OF CT, or a similar labelled value.
     patterns = [
-        r'(?:CT\s*/\s*PT|CT\s+MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT|\bMAKE)\s*:?\s*([A-Za-z][A-Za-z0-9/&.\- ]*?)(?=\s+\d{1,2}\.\d{2}\.\d{2}\s+|$)',
+        r'(?:CT\s*/\s*MAKE|CT\s+MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9/&.\-]*)',
+        r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9/&.\-]*)',
+        r'\b(PRAGATI\s*/\s*ECS)\b',
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
-            value = clean_value(m.group(1))
-            if value and value.upper() not in {'OF','CT','PT'}:
+            value = clean_value(m.group(1)).replace(' / ', '/')
+            if value and value.upper() not in {'OF','CT','PT','MAKE'}:
                 return value
     return ''
 
@@ -287,16 +291,16 @@ def extract_bil(dis_text):
 
 def extract_panel_suitability(dis_text):
     text = dis_search_text(dis_text)
+    # Prefer the actual panel designation + width when it is present in DIS.
+    # Do not concatenate unrelated words from the Location field.
+    m = re.search(r'\b(8BK80)\s*[-–]?\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
+    if m:
+        return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
+    m = re.search(r'\b([A-Z0-9+()]+)\s*[-–]\s*(\d{3,4})\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
+    if m:
+        return f'{m.group(1)}-{m.group(2)}mm WIDTH PANEL'
     value = dis_field(dis_text, '2.02.01', r'Location')
-    value = clean_value(value) if value else ''
-    # The fixed DIS identifies the panel location/type and may place the
-    # panel width in the same field or immediately elsewhere in the text.
-    if value and re.search(r'\b\d{3,4}\s*mm\s*WIDTH\s*PANEL\b', value, re.I):
-        return value
-    width = re.search(r'\b\d{3,4}\s*mm\s*WIDTH\s*PANEL\b', text, re.I)
-    if value and width:
-        return f'{value} - {clean_value(width.group(0))}'
-    return value or (clean_value(width.group(0)) if width else '')
+    return clean_value(value) if value else ''
 
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
