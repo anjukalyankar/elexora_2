@@ -456,9 +456,15 @@ def export_book(payload):
   for col in range(1,9):ws.cell(i,col).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7)
   ws.row_dimensions[i].height=15.6
  fr=72; footer_left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]; footer_mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]; footer_right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('','1 of 1')]
- for i,(label,value) in enumerate(footer_left):ws.cell(fr+i,1,label).font=Font(name='Arial',size=7);ws.cell(fr+i,2,value).font=Font(name='Arial',size=7)
- for i,(label,value) in enumerate(footer_mid):ws.cell(fr+i,4,label).font=Font(name='Arial',size=7);ws.cell(fr+i,5,value).font=Font(name='Arial',size=7)
- for i,(label,value) in enumerate(footer_right):ws.cell(fr+i,7,label).font=Font(name='Arial',size=7);ws.cell(fr+i,8,value).font=Font(name='Arial',size=7);ws.cell(fr+i,8).alignment=Alignment(horizontal='right')
+ for i,(label,value) in enumerate(footer_left):
+  ws.cell(fr+i,1,label).font=Font(name='Arial',size=7); ws.cell(fr+i,2,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,1).alignment=Alignment(horizontal='left',vertical='center'); ws.cell(fr+i,2).alignment=Alignment(horizontal='left',vertical='center')
+ for i,(label,value) in enumerate(footer_mid):
+  ws.cell(fr+i,4,label).font=Font(name='Arial',size=7); ws.cell(fr+i,5,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,4).alignment=Alignment(horizontal='left',vertical='center'); ws.cell(fr+i,5).alignment=Alignment(horizontal='left',vertical='center')
+ for i,(label,value) in enumerate(footer_right):
+  ws.cell(fr+i,7,label).font=Font(name='Arial',size=7); ws.cell(fr+i,8,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,7).alignment=Alignment(horizontal='right',vertical='center'); ws.cell(fr+i,8).alignment=Alignment(horizontal='right',vertical='center')
  ws.print_area='A1:H76'; return wb
 @app.post('/api/bom/export')
 async def export(payload:dict, user:str=Depends(current_user)):
