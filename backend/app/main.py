@@ -136,24 +136,49 @@ def load_led_master():
 
 def extract_led_attributes(description, details, designation):
     text = clean_value(' '.join([description or '', details or '', designation or '']))
-    colour = first_match(r'\b(RED|GREEN|AMBER|YELLOW|BLUE|WHITE|CLEAR)\b', text).upper()
-    voltage = first_match(r'\b(\d+(?:/\d+)?V(?:\s*AC/DC|\s*AC|\s*DC)?)\b', text)
+    colours = re.findall(r'\b(RED|GREEN|AMBER|YELLOW|BLUE|WHITE|CLEAR)\b', text, re.I)
+    colour = colours[0].upper() if colours else ''
+    voltage = first_match(r'\b(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?V(?:\s*AC/DC|\s*AC|\s*DC)?)\b', text)
     if not voltage:
-        voltage = first_match(r'\b(\d+(?:\.\d+)?(?:\s*TO\s*\d+(?:\.\d+)?)?V(?:\s*AC\s*&\s*\d+(?:\.\d+)?(?:\s*TO\s*\d+)?V)?\s*(?:AC|DC))\b', text)
+        voltage = first_match(r'\b(\d+(?:\.\d+)?(?:\s*TO\s*\d+(?:\.\d+)?)?V(?:\s*AC\s*&\s*\d+(?:\.\d+)?(?:\s*TO\s*\d+(?:\.\d+)?)?V)?\s*(?:AC|DC))\b', text)
     return colour, clean_value(voltage).upper()
+
+
+def extract_led_colours(description, details, designation):
+    text = clean_value(' '.join([description or '', details or '', designation or '']))
+    return [x.upper() for x in re.findall(r'\b(RED|GREEN|AMBER|YELLOW|BLUE|WHITE|CLEAR)\b', text, re.I)]
+
+
+def led_master_match_by_values(colour, voltage, allow_variable=False):
+    colour = clean_value(colour).upper()
+    voltage = clean_value(voltage).upper()
+    if not colour or not voltage:
+        return None
+
+    target = re.sub(r'\s+', ' ', voltage)
+    for item in load_led_master():
+        if item['colour'] != colour:
+            continue
+        master_voltage = re.sub(r'\s+', ' ', item['voltage']).upper()
+
+        # Normal rule: every voltage must match the exact master-data entry.
+        if master_voltage == target:
+            return item
+
+        # Special fixed-template rule: ONLY 63.5V AC/DC uses the
+        # variable-voltage LED family from the master database.
+        if allow_variable and re.fullmatch(r'63\.5\s*V\s*(AC|DC)', target, re.I):
+            if led_voltage_matches(target, master_voltage):
+                return item
+    return None
+
 
 def led_master_match(description, details, designation):
     colour, voltage = extract_led_attributes(description, details, designation)
-    if not colour or not voltage:
-        return None
-    target = re.sub(r'\s+', ' ', voltage).upper()
-    for item in load_led_master():
-        if item['colour'] == colour and re.sub(r'\s+', ' ', item['voltage']).upper() == target:
-            return item
-    return None
+    return led_master_match_by_values(colour, voltage)
 
-def led_spec(description, details, designation):
-    item = led_master_match(description, details, designation)
+
+def led_spec_from_item(item):
     if not item:
         return [], None
     make = (item.get('manufacturer') or '').strip()
@@ -163,12 +188,61 @@ def led_spec(description, details, designation):
     voltage = next((p for p in parts if p.upper().startswith('VOLTAGE')), '')
     typ = next((p for p in parts if p.upper().startswith('TYPE')), '')
     lines = []
-    if make: lines.append(f'{make.upper()} MAKE')
+    if make:
+        lines.append(f'{make.upper()} MAKE')
     lines.append('LED LAMP (COMPLETE UNIT)')
-    if colour: lines.append(re.sub(r'\s*:\s*', '  : ', colour, count=1))
-    if voltage: lines.append(re.sub(r'\s*:\s*', ' : ', voltage, count=1))
-    if typ: lines.append(re.sub(r'\s*:\s*', ' : ', typ, count=1))
+    if colour:
+        lines.append(re.sub(r'\s*:\s*', '  : ', colour, count=1))
+    if voltage:
+        lines.append(re.sub(r'\s*:\s*', ' : ', voltage, count=1))
+    if typ:
+        lines.append(re.sub(r'\s*:\s*', ' : ', typ, count=1))
     return lines, item
+
+
+def led_spec(description, details, designation):
+    item = led_master_match(description, details, designation)
+    return led_spec_from_item(item)
+
+
+def led_specs_for_h7_h9(description, details, designation):
+    """
+    Fixed MSLD special case for H7/H8/H9:
+    H7 = RED, H8 = YELLOW, H9 = BLUE.
+    Each lamp is emitted as its own BOM row.
+    For 63.5V only, use the variable 42-240V AC / 42-220V DC
+    master-data family. Other voltages remain exact-match only.
+    """
+    text = clean_value(' '.join([description or '', details or '', designation or '']))
+    colours = extract_led_colours(description, details, designation)
+
+    # Preserve the fixed-template designation-to-colour mapping.
+    expected = [('H7', 'RED'), ('H8', 'YELLOW'), ('H9', 'BLUE')]
+    selected = []
+    for des, colour in expected:
+        if colour in colours:
+            selected.append((des, colour))
+
+    # If PDF extraction collapses/reorders the colour text, fall back to
+    # the fixed H7/H8/H9 order rather than combining the three lamps.
+    if not selected and re.search(r'\bH7/H8/H9\b', text, re.I):
+        selected = expected
+
+    voltage = first_match(r'\b(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', text)
+    if not voltage:
+        return []
+
+    results = []
+    for des, colour in selected:
+        item = led_master_match_by_values(
+            colour,
+            voltage,
+            allow_variable=re.fullmatch(r'63\.5\s*V\s*(AC|DC)', voltage, re.I) is not None
+        )
+        lines, item = led_spec_from_item(item)
+        if lines:
+            results.append({'designation': des, 'specification_lines': lines, 'item': item})
+    return results
 
 
 # Fixed CT BOM structure. Project values are extracted from the fixed MSLD/DIS templates;
@@ -443,18 +517,24 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
    editable_indices=[8,14]
+   rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code']})
   elif r['master_code']=='LED':
+   # H7/H8/H9 are three separate lamps in the fixed MSLD template.
+   if re.fullmatch(r'H7/H8/H9', r.get('designation','').strip(), re.I):
+    led_parts = led_specs_for_h7_h9(r.get('description',''), r.get('details',''), r.get('designation',''))
+    if led_parts:
+     for part in led_parts:
+      spec='\n'.join(part['specification_lines'])
+      rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':part['specification_lines'],'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':1*feeder_qty_num,'eqpt_qty':1,'mpd':'','amd':'','master_code':r['master_code']})
+     continue
    spec_lines, led_item = led_spec(r.get('description',''), r.get('details',''), r.get('designation',''))
    spec='\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
    spec_lines=spec_lines or ([clean(spec)] if spec else [])
-   editable_fields=[]
-   editable_indices=[]
+   rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':[],'editable_indices':[],'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code']})
   else:
    spec=r['description']+((' | '+r['details']) if r['details'] else '')
    spec_lines=[clean(spec)] if spec else []
-   editable_fields=[]
-   editable_indices=[]
-  rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code']})
+   rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':[],'editable_indices':[],'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code']})
  return rows,feeder_name,feeder_qty
 
 def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
