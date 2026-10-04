@@ -97,17 +97,26 @@ def load_led_master():
     if LED_MASTER_CACHE is not None:
         return LED_MASTER_CACHE
     path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.xlsx')
-    if not os.path.exists(path):
-        LED_MASTER_CACHE = []
-        return LED_MASTER_CACHE
+    csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
     try:
-        from openpyxl import load_workbook
-        wb = load_workbook(path, read_only=True, data_only=True)
-        ws = wb.active
-        headers = [str(c.value or '').strip().upper() for c in ws[1]]
+        if os.path.exists(path):
+            from openpyxl import load_workbook
+            wb = load_workbook(path, read_only=True, data_only=True)
+            ws = wb.active
+            headers = [str(c.value or '').strip().upper() for c in ws[1]]
+            data_rows = ws.iter_rows(min_row=2, values_only=True)
+        elif os.path.exists(csv_path):
+            import csv
+            fh = open(csv_path, newline='', encoding='utf-8')
+            reader = csv.DictReader(fh)
+            headers = [str(h or '').strip().upper() for h in (reader.fieldnames or [])]
+            data_rows = ([row.get(h, '') for h in reader.fieldnames or []] for row in reader)
+        else:
+            LED_MASTER_CACHE = []
+            return LED_MASTER_CACHE
         idx = {name:i for i,name in enumerate(headers)}
         records = []
-        for values in ws.iter_rows(min_row=2, values_only=True):
+        for values in data_rows:
             category = str(values[idx['CATEGORY']] or '').strip().upper() if 'CATEGORY' in idx else ''
             if category != 'LED LAMP':
                 continue
@@ -118,7 +127,8 @@ def load_led_master():
             voltage = first_match(r'VOLTAGE\s*:\s*([^,]+)', description)
             if description and colour and voltage:
                 records.append({'description':description,'manufacturer':manufacturer,'model':model,'colour':clean_value(colour).upper(),'voltage':clean_value(voltage).upper()})
-        wb.close()
+        if 'wb' in locals(): wb.close()
+        if 'fh' in locals(): fh.close()
         LED_MASTER_CACHE = records
     except Exception:
         LED_MASTER_CACHE = []
