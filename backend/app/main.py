@@ -476,6 +476,36 @@ def export_book(payload):
 async def export(payload:dict, user:str=Depends(current_user)):
  wb=export_book(payload);out=io.BytesIO();wb.save(out);out.seek(0);return StreamingResponse(out,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.xlsx'})
 
+class NumberedCanvas:
+    def __init__(self, *args, **kwargs):
+        from reportlab.pdfgen import canvas as pdfcanvas
+        self._canvas = pdfcanvas.Canvas(*args, **kwargs)
+        self._saved_page_states = []
+
+    def __getattr__(self, name):
+        return getattr(self._canvas, name)
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self._canvas.__dict__))
+        self._canvas._startPage()
+
+    def save(self):
+        total = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self._canvas.__dict__.update(state)
+            self._draw_page_number(total)
+            self._canvas.showPage()
+        self._canvas.save()
+
+    def _draw_page_number(self, total):
+        w, hp = A4
+        self._canvas.setFont('Helvetica', 6.5)
+        self._canvas.drawRightString(
+            w - 8*mm, 11*mm,
+            f'{self._canvas.getPageNumber()} of {total}'
+        )
+
+
 def export_pdf(payload):
     out = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -533,7 +563,7 @@ def export_pdf(payload):
         canvas.setFont('Helvetica',6.5)
         left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]
         mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]
-        right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('',f'{doc_obj.page} of {{pages}}')]
+        right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd',''))]
         for i,(label,value) in enumerate(left):
             canvas.drawString(8*mm,y+(2.5-i*3)*mm,(label+' '+str(value)).strip())
         for i,(label,value) in enumerate(mid):
@@ -541,11 +571,11 @@ def export_pdf(payload):
         for i,(label,value) in enumerate(right):
             canvas.drawRightString(w-8*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
         canvas.restoreState()
-    doc.build(story,onFirstPage=footer,onLaterPages=footer)
+    doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
     out.seek(0)
     return out
 
 @app.post('/api/bom/export-pdf')
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
-    return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.pdf'})
+    return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
