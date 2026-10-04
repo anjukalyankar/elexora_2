@@ -5,6 +5,12 @@ from datetime import datetime
 import fitz, io, re
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 import os
 import secrets
 import hashlib
@@ -469,3 +475,77 @@ def export_book(payload):
 @app.post('/api/bom/export')
 async def export(payload:dict, user:str=Depends(current_user)):
  wb=export_book(payload);out=io.BytesIO();wb.save(out);out.seek(0);return StreamingResponse(out,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.xlsx'})
+
+def export_pdf(payload):
+    out = io.BytesIO()
+    doc = SimpleDocTemplate(
+        out, pagesize=A4,
+        rightMargin=8*mm, leftMargin=8*mm,
+        topMargin=12*mm, bottomMargin=28*mm
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('bomtitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, alignment=TA_CENTER)
+    meta_style = ParagraphStyle('bommeta', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, alignment=TA_RIGHT)
+    cell_style = ParagraphStyle('cell', parent=styles['Normal'], fontName='Helvetica', fontSize=6.3, leading=7.5, spaceAfter=0, spaceBefore=0)
+    cell_center = ParagraphStyle('cellcenter', parent=cell_style, alignment=TA_CENTER)
+    head_style = ParagraphStyle('head', parent=cell_style, fontName='Helvetica-Bold', alignment=TA_CENTER, leading=8)
+    h = payload.get('header', {})
+    rows = payload.get('rows', [])
+    story = [
+        Paragraph('-: Equipment List :-', title_style),
+        Spacer(1, 4*mm),
+    ]
+    data = [
+        [Paragraph('EQPT.NO',head_style), Paragraph('SPECIFICATION',head_style), Paragraph('DESIGNATION',head_style),
+         Paragraph('FEEDER TYPICAL',head_style), '', Paragraph('TOTAL<br/>EQPT<br/>QTY.',head_style), Paragraph('MPD',head_style), Paragraph('AMD',head_style)],
+        ['', '', '', Paragraph('QTY.',head_style), Paragraph(str(payload.get('feeder_name','')),head_style), '', '', ''],
+        ['', '', '', '', Paragraph(str(payload.get('feeder_qty','')),cell_center), '', '', '']
+    ]
+    for row in rows[:64]:
+        spec = row.get('specification','') or ''
+        data.append([
+            Paragraph(str(row.get('sr','') or ''), cell_center),
+            Paragraph(str(spec).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>'), cell_style),
+            Paragraph(str(row.get('designation','') or ''), cell_center),
+            '',
+            Paragraph(str(row.get('eqpt_qty','') or ''), cell_center),
+            Paragraph(str(row.get('total','') or ''), cell_center),
+            '', ''
+        ])
+    col_widths=[18*mm, 91*mm, 27*mm, 19*mm, 22*mm, 20*mm, 10*mm, 10*mm]
+    tbl=Table(data,colWidths=col_widths,repeatRows=3)
+    tbl.setStyle(TableStyle([
+        ('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),
+        ('SPAN',(3,0),(4,0)),('SPAN',(5,0),(5,2)),('SPAN',(6,0),(6,2)),('SPAN',(7,0),(7,2)),
+        ('GRID',(0,0),(-1,-1),0.45,colors.black),
+        ('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('ALIGN',(0,0),(-1,2),'CENTER'),
+        ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+        ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
+    ]))
+    story.append(tbl)
+
+    def footer(canvas, doc_obj):
+        canvas.saveState()
+        w,hp=A4
+        y=12*mm
+        canvas.setFont('Helvetica',6.5)
+        left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]
+        mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]
+        right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('',f'{doc_obj.page} of {{pages}}')]
+        for i,(label,value) in enumerate(left):
+            canvas.drawString(8*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
+        for i,(label,value) in enumerate(mid):
+            canvas.drawString(78*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
+        for i,(label,value) in enumerate(right):
+            canvas.drawRightString(w-8*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
+        canvas.restoreState()
+    doc.build(story,onFirstPage=footer,onLaterPages=footer)
+    out.seek(0)
+    return out
+
+@app.post('/api/bom/export-pdf')
+async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
+    out=export_pdf(payload)
+    return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.pdf'})
