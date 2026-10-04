@@ -348,7 +348,7 @@ def ct_spec(ct_text, dis_text):
 
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
- feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; rows=[]
+ feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_qty_num=int(re.search(r'\\d+',str(feeder_qty)).group()) if re.search(r'\\d+',str(feeder_qty)) else 1; rows=[]
  for i,r in enumerate(records,1):
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
@@ -361,7 +361,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec_lines=[clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
-  rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':r['quantity'],'eqpt_qty':r['quantity'],'mpd':'','amd':'','master_code':r['master_code']})
+  rows.append({'sr':i,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':r['quantity']*feeder_qty_num,'eqpt_qty':r['quantity'],'mpd':'','amd':'','master_code':r['master_code']})
  return rows,feeder_name,feeder_qty
 
 def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
@@ -444,15 +444,15 @@ def export_book(payload):
  for col,width in {'A':12.43,'B':80.99,'C':18.43,'D':10.0,'E':11.87,'F':9.10,'G':5.87,'H':5.87}.items():ws.column_dimensions[col].width=width
  ws.merge_cells('A1:E2'); ws['A1']='-: Equipment List :-'; ws['A1'].font=Font(name='Courier New',size=10); ws['A1'].alignment=Alignment(horizontal='center',vertical='center'); ws['F1']=f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}'; ws['F1'].alignment=Alignment(horizontal='right',vertical='top',wrap_text=True); ws['F1'].font=Font(name='Arial',size=7); ws.merge_cells('F1:H2'); ws.row_dimensions[1].height=34; ws.row_dimensions[2].height=16
  for c,v in [('A4','EQPT.NO'),('B4','SPECIFICATION'),('C4','DESIGNATION'),('F4','TOTAL EQPT QTY.'),('G4','MPD'),('H4','AMD')]:ws[c]=v
- ws.merge_cells('A4:A5'); ws.merge_cells('B4:B5'); ws.merge_cells('C4:C5'); ws.merge_cells('D4:E4'); ws.merge_cells('F4:F5'); ws.merge_cells('G4:G5'); ws.merge_cells('H4:H5'); ws['D4']='FEEDER TYPICAL'; ws['D5']='QTY.'; ws['E5']=payload.get('feeder_name','')
- for row in range(4,6):
+ ws.merge_cells('A4:A6'); ws.merge_cells('B4:B6'); ws.merge_cells('C4:C6'); ws.merge_cells('D4:E4'); ws.merge_cells('F4:F6'); ws.merge_cells('G4:G6'); ws.merge_cells('H4:H6'); ws['D4']='FEEDER TYPICAL'; ws['D5']='QTY.'; ws['E5']=payload.get('feeder_name',''); ws['E6']=payload.get('feeder_qty','')
+ for row in range(4,7):
   for col in range(1,9):ws.cell(row,col).border=border; ws.cell(row,col).alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); ws.cell(row,col).font=Font(name='Courier New',size=10 if row==4 else 9,bold=True)
- ws.row_dimensions[4].height=23.25; ws.row_dimensions[5].height=21.75
- for i,row in enumerate(rows[:64],6):
-  vals=[row.get('sr',''),row.get('specification',''),row.get('designation',''),'','',row.get('total') if row.get('total') is not None else '','','']
+ ws.row_dimensions[4].height=23.25; ws.row_dimensions[5].height=18; ws.row_dimensions[6].height=18
+ for i,row in enumerate(rows[:64],7):
+  vals=[row.get('sr',''),row.get('specification',''),row.get('designation',''),' ',row.get('eqpt_qty') if row.get('eqpt_qty') is not None else '',row.get('total') if row.get('total') is not None else '','','']
   for col,val in enumerate(vals,1):ws.cell(i,col,val).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7); ws.cell(i,col).alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=True if col==2 else False)
   ws.row_dimensions[i].height=max(15.6,min(180,15.6*max(1,len(row.get('specification_lines',[])))))
- for i in range(6+len(rows[:64]),70):
+ for i in range(7+len(rows[:64]),70):
   for col in range(1,9):ws.cell(i,col).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7)
   ws.row_dimensions[i].height=15.6
  fr=72; footer_left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]; footer_mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]; footer_right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('','1 of 1')]
