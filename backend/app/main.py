@@ -512,7 +512,7 @@ def export_pdf(payload):
             Paragraph(str(row.get('total','') or ''), cell_center),
             '', ''
         ])
-    col_widths=[18*mm, 91*mm, 27*mm, 19*mm, 22*mm, 20*mm, 10*mm, 10*mm]
+    col_widths=[16*mm, 81*mm, 24*mm, 17*mm, 20*mm, 18*mm, 9*mm, 9*mm]
     tbl=Table(data,colWidths=col_widths,repeatRows=3)
     tbl.setStyle(TableStyle([
         ('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),
@@ -529,13 +529,13 @@ def export_pdf(payload):
     def footer(canvas, doc_obj):
         canvas.saveState()
         w,hp=A4
-        y=12*mm
+        y=11*mm
         canvas.setFont('Helvetica',6.5)
         left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]
         mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]
         right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('',f'{doc_obj.page} of {{pages}}')]
         for i,(label,value) in enumerate(left):
-            canvas.drawString(8*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
+            canvas.drawString(8*mm,y+(2.5-i*3)*mm,(label+' '+str(value)).strip())
         for i,(label,value) in enumerate(mid):
             canvas.drawString(78*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
         for i,(label,value) in enumerate(right):
