@@ -498,10 +498,11 @@ class NumberedCanvas:
         self._canvas.save()
 
     def _draw_page_number(self, total):
+        # Page number occupies its own fourth line in the right footer block.
         w, hp = A4
         self._canvas.setFont('Helvetica', 6.5)
         self._canvas.drawRightString(
-            w - 8*mm, 11*mm,
+            w - 8*mm, 4*mm,
             f'{self._canvas.getPageNumber()} of {total}'
         )
 
@@ -558,18 +559,42 @@ def export_pdf(payload):
 
     def footer(canvas, doc_obj):
         canvas.saveState()
-        w,hp=A4
-        y=11*mm
-        canvas.setFont('Helvetica',6.5)
-        left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]
-        mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]
-        right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd',''))]
+        w, hp = A4
+        y = 11*mm
+        canvas.setFont('Helvetica', 6.5)
+
+        # Fixed footer zones matching the supplied BOM: left / center / right.
+        left_x = 8*mm
+        mid_x = 82*mm
+        right_x = 164*mm
+        line_step = 3*mm
+
+        left=[
+            ('Item No.','100'),
+            ('Client :',h.get('client','')),
+            ('Sales Ref No.:',h.get('sales_ref','')),
+            ('DATE :',datetime.now().strftime('%d.%m.%Y'))
+        ]
+        mid=[
+            ('Description :',payload.get('description','')),
+            ('W.O. No.:',h.get('wo','')),
+            ('Drg. No.:',h.get('drawing',''))
+        ]
+        right=[
+            ('PRE.BY :',h.get('prep_by','')),
+            ('Qty.:',payload.get('qty','')),
+            ('ESD No.:',h.get('esd',''))
+        ]
+
         for i,(label,value) in enumerate(left):
-            canvas.drawString(8*mm,y+(2.5-i*3)*mm,(label+' '+str(value)).strip())
+            canvas.drawString(left_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
         for i,(label,value) in enumerate(mid):
-            canvas.drawString(78*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
+            canvas.drawString(mid_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
         for i,(label,value) in enumerate(right):
-            canvas.drawRightString(w-8*mm,y+(3-i*4)*mm,(label+' '+str(value)).strip())
+            canvas.drawString(right_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
         canvas.restoreState()
     doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
     out.seek(0)
