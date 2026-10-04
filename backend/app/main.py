@@ -589,8 +589,15 @@ def export_pdf(payload):
         for i,(label,value) in enumerate(left):
             canvas.drawString(left_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
 
+        # Keep the center footer inside its own zone so it cannot overlap the right block.
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        mid_max_x = right_x - 5*mm
         for i,(label,value) in enumerate(mid):
-            canvas.drawString(mid_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+            text_value = (label+' '+str(value)).strip()
+            max_width = mid_max_x - mid_x
+            while stringWidth(text_value, 'Helvetica', 6.5) > max_width and len(text_value) > len(label) + 4:
+                text_value = text_value[:-2].rstrip() + '...'
+            canvas.drawString(mid_x, y+(2.5-i)*line_step, text_value)
 
         for i,(label,value) in enumerate(right):
             canvas.drawString(right_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
