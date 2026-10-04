@@ -90,6 +90,76 @@ app = FastAPI(title='ELEXORA 2 API', version='0.7.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 REFERENCE_FEEDER_COLUMN = 'FEEDER TYPICAL'
 MASTER = {'CT':'CURRENT TRANSFORMER','PT':'POTENTIAL TRANSFORMER (DRAWOUT TYPE)','7SJ6611':'NUMERICAL PROTECTION RELAY','EM6400NG':'DIGITAL MF METER','AMMETER':'DIGITAL AMMETER WITH BUILT IN SEL. S/W','VOLTMETER':'DIGITAL VOLTMETER WITH BUILT IN SEL. S/W','MCB':'MINIATURE CIRCUIT BREAKER'}
+LED_MASTER_CACHE = None
+
+def load_led_master():
+    global LED_MASTER_CACHE
+    if LED_MASTER_CACHE is not None:
+        return LED_MASTER_CACHE
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.xlsx')
+    if not os.path.exists(path):
+        LED_MASTER_CACHE = []
+        return LED_MASTER_CACHE
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(path, read_only=True, data_only=True)
+        ws = wb.active
+        headers = [str(c.value or '').strip().upper() for c in ws[1]]
+        idx = {name:i for i,name in enumerate(headers)}
+        records = []
+        for values in ws.iter_rows(min_row=2, values_only=True):
+            category = str(values[idx['CATEGORY']] or '').strip().upper() if 'CATEGORY' in idx else ''
+            if category != 'LED LAMP':
+                continue
+            description = str(values[idx['DISCRIPTION']] or '').strip() if 'DISCRIPTION' in idx else ''
+            manufacturer = str(values[idx['MANUFACTURER']] or '').strip() if 'MANUFACTURER' in idx else ''
+            model = str(values[idx['MODEL']] or '').strip() if 'MODEL' in idx else ''
+            colour = first_match(r'COLOUR\s*:\s*([^,]+)', description)
+            voltage = first_match(r'VOLTAGE\s*:\s*([^,]+)', description)
+            if description and colour and voltage:
+                records.append({'description':description,'manufacturer':manufacturer,'model':model,'colour':clean_value(colour).upper(),'voltage':clean_value(voltage).upper()})
+        wb.close()
+        LED_MASTER_CACHE = records
+    except Exception:
+        LED_MASTER_CACHE = []
+    return LED_MASTER_CACHE
+
+def extract_led_attributes(description, details, designation):
+    text = clean_value(' '.join([description or '', details or '', designation or '']))
+    colour = first_match(r'\b(RED|GREEN|AMBER|YELLOW|BLUE|WHITE|CLEAR)\b', text).upper()
+    voltage = first_match(r'\b(\d+(?:/\d+)?V(?:\s*AC/DC|\s*AC|\s*DC)?)\b', text)
+    if not voltage:
+        voltage = first_match(r'\b(\d+(?:\.\d+)?(?:\s*TO\s*\d+(?:\.\d+)?)?V(?:\s*AC\s*&\s*\d+(?:\.\d+)?(?:\s*TO\s*\d+)?V)?\s*(?:AC|DC))\b', text)
+    return colour, clean_value(voltage).upper()
+
+def led_master_match(description, details, designation):
+    colour, voltage = extract_led_attributes(description, details, designation)
+    if not colour or not voltage:
+        return None
+    target = re.sub(r'\s+', ' ', voltage).upper()
+    for item in load_led_master():
+        if item['colour'] == colour and re.sub(r'\s+', ' ', item['voltage']).upper() == target:
+            return item
+    return None
+
+def led_spec(description, details, designation):
+    item = led_master_match(description, details, designation)
+    if not item:
+        return [], None
+    make = (item.get('manufacturer') or '').strip()
+    desc = item.get('description','').strip()
+    parts = [p.strip() for p in desc.split(',') if p.strip()]
+    colour = next((p for p in parts if p.upper().startswith('COLOUR')), '')
+    voltage = next((p for p in parts if p.upper().startswith('VOLTAGE')), '')
+    typ = next((p for p in parts if p.upper().startswith('TYPE')), '')
+    lines = []
+    if make: lines.append(f'{make.upper()} MAKE')
+    lines.append('LED LAMP (COMPLETE UNIT)')
+    if colour: lines.append(re.sub(r'\s*:\s*', '  : ', colour, count=1))
+    if voltage: lines.append(re.sub(r'\s*:\s*', ' : ', voltage, count=1))
+    if typ: lines.append(re.sub(r'\s*:\s*', ' : ', typ, count=1))
+    return lines, item
+
 
 # Fixed CT BOM structure. Project values are extracted from the fixed MSLD/DIS templates;
 # wording and line order remain fixed.
@@ -142,6 +212,7 @@ def designation_qty(des):
  return total or None
 def master_match(description,details,designation):
  s=(description+' '+details).upper()
+ if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if '7SJ6611' in s or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
@@ -362,6 +433,12 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
    editable_indices=[8,14]
+  elif r['master_code']=='LED':
+   spec_lines, led_item = led_spec(r.get('description',''), r.get('details',''), r.get('designation',''))
+   spec='\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
+   spec_lines=spec_lines or ([clean(spec)] if spec else [])
+   editable_fields=[]
+   editable_indices=[]
   else:
    spec=r['description']+((' | '+r['details']) if r['details'] else '')
    spec_lines=[clean(spec)] if spec else []
