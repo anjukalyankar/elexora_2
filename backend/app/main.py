@@ -171,6 +171,43 @@ def led_spec(description, details, designation):
     return lines, item
 
 
+def led_master_match_for_colour(colour, voltage):
+    """Exact LED voltage match, with the only exception being 63.5V."""
+    colour = clean_value(colour).upper()
+    target = re.sub(r'\\s+', ' ', clean_value(voltage).upper()).strip()
+    if not colour or not target:
+        return None
+    for item in load_led_master():
+        if item.get('colour','').upper() != colour:
+            continue
+        master = re.sub(r'\\s+', ' ', item.get('voltage','').upper()).strip()
+        if master == target:
+            return item
+        if re.fullmatch(r'63\\.5\\s*V\\s*AC', target, re.I) and re.search(r'42\\s*TO\\s*240\\s*V\\s*AC', master, re.I):
+            return item
+        if re.fullmatch(r'63\\.5\\s*V\\s*DC', target, re.I) and re.search(r'42\\s*TO\\s*220\\s*V\\s*DC', master, re.I):
+            return item
+    return None
+
+
+def led_specs_for_h7_h8_h9(description, details, designation):
+    combined = clean_value(' '.join([description or '', details or '', designation or '']))
+    has_group = all(re.search(r'\\b' + code + r'\\b', combined, re.I) for code in ('H7','H8','H9'))
+    has_group = has_group or bool(re.search(r'H7\\s*[/,-]\\s*H8\\s*[/,-]\\s*H9', combined, re.I))
+    if not has_group:
+        return []
+    voltage = first_match(r'\\b(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', combined)
+    if not voltage:
+        return []
+    results=[]
+    for code, colour in (('H7','RED'),('H8','YELLOW'),('H9','BLUE')):
+        item=led_master_match_for_colour(colour, voltage)
+        lines, item=led_spec_from_item(item)
+        if lines:
+            results.append({'designation':code,'specification_lines':lines,'item':item})
+    return results
+
+
 # Fixed CT BOM structure. Project values are extracted from the fixed MSLD/DIS templates;
 # wording and line order remain fixed.
 CT_TEMPLATE = [
@@ -444,8 +481,14 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
    editable_indices=[8,14]
   elif r['master_code']=='LED':
+   h789=led_specs_for_h7_h8_h9(r.get('description',''),r.get('details',''),r.get('designation',''))
+   if h789:
+    for part in h789:
+     part_lines=part['specification_lines']
+     rows.append({'sr':len(rows)+1,'specification':'\\n'.join(part_lines),'specification_lines':part_lines,'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':feeder_qty_num,'eqpt_qty':1,'mpd':'','amd':'','master_code':'LED'})
+    continue
    spec_lines, led_item = led_spec(r.get('description',''), r.get('details',''), r.get('designation',''))
-   spec='\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
+   spec='\\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
    spec_lines=spec_lines or ([clean(spec)] if spec else [])
    editable_fields=[]
    editable_indices=[]
