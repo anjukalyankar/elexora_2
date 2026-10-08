@@ -150,18 +150,17 @@ def extract_led_colours(description, details, designation):
 
 
 def led_voltage_matches(msld_voltage, master_voltage):
-    """
-    Special variable-voltage rule used only for the 63.5V LED.
-    A 63.5V AC MSLD lamp is supported by the master entry
-    '42 to 240V AC & 42 to 220V DC'.
-    """
-    target = clean_value(msld_voltage).upper().replace('–','-').replace('—','-')
-    available = clean_value(master_voltage).upper().replace('–','-').replace('—','-')
-
+    target = clean_value(msld_voltage).upper()
+    available = clean_value(master_voltage).upper()
     if not re.fullmatch(r'63\.5\s*V\s*(AC|DC)', target, re.I):
         return False
+    supply = re.search(r'(AC|DC)\s*$', target, re.I).group(1).upper()
+    if supply == 'AC':
+        return bool(re.search(r'42\s*TO\s*240\s*V\s*AC', available, re.I))
+    return bool(re.search(r'42\s*TO\s*220\s*V\s*DC', available, re.I))
 
-    supply = re.search(r'(AC|DC)\s*
+
+def led_master_match_by_values(colour, voltage, allow_variable=False):
     colour = clean_value(colour).upper()
     voltage = clean_value(voltage).upper()
     if not colour or not voltage:
@@ -173,15 +172,13 @@ def led_voltage_matches(msld_voltage, master_voltage):
             continue
         master_voltage = re.sub(r'\s+', ' ', item['voltage']).upper()
 
-        # Normal rule: every voltage must match the exact master-data entry.
+        # Exact matching is the normal rule.
         if master_voltage == target:
             return item
 
-        # Special fixed-template rule: ONLY 63.5V AC/DC uses the
-        # variable-voltage LED family from the master database.
-        if allow_variable and re.fullmatch(r'63\.5\s*V\s*(AC|DC)', target, re.I):
-            if led_voltage_matches(target, master_voltage):
-                return item
+        # The variable-range master entry is ONLY allowed for 63.5V.
+        if allow_variable and led_voltage_matches(target, master_voltage):
+            return item
     return None
 
 
@@ -194,7 +191,7 @@ def led_spec_from_item(item):
     if not item:
         return [], None
     make = (item.get('manufacturer') or '').strip()
-    desc = item.get('description','').strip()
+    desc = item.get('description', '').strip()
     parts = [p.strip() for p in desc.split(',') if p.strip()]
     colour = next((p for p in parts if p.upper().startswith('COLOUR')), '')
     voltage = next((p for p in parts if p.upper().startswith('VOLTAGE')), '')
@@ -218,19 +215,11 @@ def led_spec(description, details, designation):
 
 
 def led_specs_for_h7_h9(description, details, designation):
-    """
-    Fixed MSLD special case for H7/H8/H9:
-    H7 = RED, H8 = YELLOW, H9 = BLUE.
-    Each lamp is emitted as its own BOM row.
-    For 63.5V only, use the variable 42-240V AC / 42-220V DC
-    master-data family. Other voltages remain exact-match only.
-    """
     text = clean_value(' '.join([description or '', details or '', designation or '']))
-    # H7/H8/H9 is a fixed-template three-lamp group. Do not depend on
-    # the PDF text extractor preserving the visual order of colours.
-    expected = [('H7', 'RED'), ('H8', 'YELLOW'), ('H9', 'BLUE')]
-    selected = expected if re.search(r'H7\s*/\s*H8\s*/\s*H9', text, re.I) else []
-    if not selected:
+
+    # H7/H8/H9 is fixed in this MSLD template.
+    # Do not depend on PDF text extraction order.
+    if not re.search(r'H7\s*/\s*H8\s*/\s*H9', text, re.I):
         return []
 
     voltage = first_match(r'\b(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', text)
@@ -238,15 +227,19 @@ def led_specs_for_h7_h9(description, details, designation):
         return []
 
     results = []
-    for des, colour in selected:
+    for designation_code, colour in [('H7', 'RED'), ('H8', 'YELLOW'), ('H9', 'BLUE')]:
         item = led_master_match_by_values(
             colour,
             voltage,
-            allow_variable=re.fullmatch(r'63\.5\s*V\s*(AC|DC)', voltage, re.I) is not None
+            allow_variable=True if re.fullmatch(r'63\.5\s*V\s*(AC|DC)', voltage, re.I) else False
         )
         lines, item = led_spec_from_item(item)
         if lines:
-            results.append({'designation': des, 'specification_lines': lines, 'item': item})
+            results.append({
+                'designation': designation_code,
+                'specification_lines': lines,
+                'item': item
+            })
     return results
 
 
