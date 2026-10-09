@@ -481,7 +481,9 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
    editable_indices=[8,14]
   elif r['master_code']=='LED':
-   h789=led_specs_for_h7_h8_h9(r.get('description',''),r.get('details',''),r.get('designation',''))
+   led_text=' '.join([str(r.get('description') or ''),str(r.get('details') or ''),str(r.get('designation') or '')])
+   is_h789=bool(re.search(r'\\bH7\\b',led_text,re.I) and re.search(r'\\bH8\\b',led_text,re.I) and re.search(r'\\bH9\\b',led_text,re.I))
+   h789=led_specs_for_h7_h8_h9(r.get('description',''),r.get('details',''),r.get('designation','')) if is_h789 else []
    if h789:
     for part in h789:
      part_lines=part['specification_lines']
