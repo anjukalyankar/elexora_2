@@ -134,6 +134,66 @@ def load_led_master():
         LED_MASTER_CACHE = []
     return LED_MASTER_CACHE
 
+def load_mcb_master():
+    """Load MCB master records from the existing CSV, preserving the CSV as source of truth."""
+    import csv
+    csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+    records = []
+    if not os.path.exists(csv_path):
+        return records
+    with open(csv_path, newline='', encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh):
+            if (row.get('CATEGORY') or '').strip().upper() != 'MCB':
+                continue
+            records.append({key.lower(): (value or '').strip() for key, value in row.items()})
+    return records
+
+
+def mcb_master_match(description, details, designation):
+    """Prefer exact model match; otherwise match known MCB attributes conservatively."""
+    text = clean_value(' '.join([description or '', details or '', designation or ''])).upper()
+    records = load_mcb_master()
+    if not records:
+        return None
+    # Exact model number is the strongest identifier.
+    for item in records:
+        model = item.get('model', '').upper()
+        if model and model in text:
+            return item
+    # Attribute fallback: only return a record when pole count and current both match.
+    pole_match = re.search(r'\b(1|2|3|4)\s*(?:P|POLE)S?\b', text)
+    current_match = re.search(r'\b(\d+(?:\.\d+)?)\s*A\b', text)
+    if not pole_match or not current_match:
+        return None
+    poles = int(pole_match.group(1))
+    current = float(current_match.group(1))
+    candidates = []
+    for item in records:
+        desc = item.get('discription', '').upper()
+        item_poles = re.search(r'\b(1|2|3|4)\s*P\b', desc)
+        item_current = re.search(r'\bRATING\s*:\s*(\d+(?:\.\d+)?)\s*A\b', desc)
+        if item_poles and item_current and int(item_poles.group(1)) == poles and float(item_current.group(1)) == current:
+            candidates.append(item)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def mcb_spec(item):
+    """Format the matched MCB record for the BOM using the master description."""
+    if not item:
+        return '', []
+    description = item.get('discription', '').strip()
+    manufacturer = item.get('manufacturer', '').strip()
+    model = item.get('model', '').strip()
+    lines = []
+    if manufacturer:
+        lines.append(f'{manufacturer.upper()} MAKE')
+    if description:
+        lines.extend(part.strip() for part in description.split(',') if part.strip())
+    if model and not any(model.upper() in line.upper() for line in lines):
+        lines.append(f'MODEL : {model}')
+    return '\\n'.join(lines), lines
+
+
 def extract_led_attributes(description, details, designation):
     text = clean_value(' '.join([description or '', details or '', designation or '']))
     colour = first_match(r'\b(RED|GREEN|AMBER|YELLOW|BLUE|WHITE|CLEAR)\b', text).upper()
@@ -291,7 +351,7 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
- if re.search(r'\bMCB\b',s):return 'MCB'
+ if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
 def extract_fixed_table(data,filename):
@@ -505,6 +565,15 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
    editable_indices=[8,14]
+  elif r['master_code']=='MCB':
+   mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
+   if mcb_item:
+    spec, spec_lines = mcb_spec(mcb_item)
+   else:
+    spec = r['description']+((' | '+r['details']) if r['details'] else '')
+    spec_lines = [clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='LED':
    h789 = led_specs_for_h7_h8_h9(r.get('description',''), r.get('details',''), r.get('designation',''))
    if h789:
