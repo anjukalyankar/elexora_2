@@ -150,51 +150,42 @@ def load_mcb_master():
 
 
 def mcb_master_match(description, details, designation):
-    """Match an MCB only when every identifiable extracted attribute agrees with its master description."""
+    """Match an MCB when extracted model, pole, current and AC/DC type agree with its master description."""
     text = clean_value(' '.join([description or '', details or '', designation or ''])).upper()
     records = load_mcb_master()
     if not records:
         return None
 
-    # Extract only attributes actually present in the PDF text.
+    # Extract attributes present in the PDF. Voltage matching uses AC/DC type only,
+    # deliberately ignoring the numeric voltage value.
     model_candidates = [item for item in records
                         if item.get('model', '').upper() and item.get('model', '').upper() in text]
     pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(?:P|POLE)S?\b', text)
     current_match = re.search(r'\b(?:RATING\s*:\s*)?(\d+(?:\.\d+)?)\s*A\b', text)
-    requested_voltages = {
-        (float(value), supply_type)
-        for value, supply_type in re.findall(r'\b(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', text)
-    }
+    requested_types = set(re.findall(r'\b(AC|DC)\b', text))
 
     candidates = model_candidates if model_candidates else records
     verified = []
     for item in candidates:
-        master_desc = item.get('discription', '')
-        desc = master_desc.upper()
+        desc = item.get('discription', '').upper()
         item_pole = re.search(r'\bPOLE\s*:\s*(1|2|3|4)\s*P\b', desc)
         item_current = re.search(r'\bRATING\s*:\s*(\d+(?:\.\d+)?)\s*A\b', desc)
-        master_voltages = {
-            (float(value), supply_type)
-            for value, supply_type in re.findall(r'\b(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', desc)
-        }
+        master_types = set(re.findall(r'\b(AC|DC)\b', desc))
 
-        # Any extracted attribute must be present and consistent in the master description.
         if pole_match and (not item_pole or int(pole_match.group(1)) != int(item_pole.group(1))):
             continue
         if current_match and (not item_current or float(current_match.group(1)) != float(item_current.group(1))):
             continue
-        if requested_voltages and not requested_voltages.issubset(master_voltages):
+        # Compare supply type only; e.g. 230 V AC and 400 V AC have the same type.
+        if requested_types and not requested_types.issubset(master_types):
             continue
-        # A model match is accepted only after the same attribute validation above.
         if model_candidates and item not in model_candidates:
             continue
-        # Do not make a guess if there is neither a model nor enough attributes to verify.
-        if not model_candidates and not (pole_match or current_match or requested_voltages):
+        if not model_candidates and not (pole_match or current_match or requested_types):
             continue
         verified.append(item)
 
     return verified[0] if len(verified) == 1 else None
-
 
 def mcb_spec(item):
     """Return only the master database DISCRIPTION, preserving its wording and order."""
