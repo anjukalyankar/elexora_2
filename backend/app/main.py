@@ -161,7 +161,10 @@ def mcb_master_match(description, details, designation):
                         if item.get('model', '').upper() and item.get('model', '').upper() in text]
     pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(?:P|POLE)S?\b', text)
     current_match = re.search(r'\b(?:RATING\s*:\s*)?(\d+(?:\.\d+)?)\s*A\b', text)
-    requested_supply_types = set(re.findall(r'\b\d+(?:\.\d+)?\s*V\s*(AC|DC)\b', text))
+    requested_voltages = {
+        (float(value), supply_type)
+        for value, supply_type in re.findall(r'\b(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', text)
+    }
 
     candidates = model_candidates if model_candidates else records
     verified = []
@@ -170,20 +173,23 @@ def mcb_master_match(description, details, designation):
         desc = master_desc.upper()
         item_pole = re.search(r'\bPOLE\s*:\s*(1|2|3|4)\s*P\b', desc)
         item_current = re.search(r'\bRATING\s*:\s*(\d+(?:\.\d+)?)\s*A\b', desc)
-        master_supply_types = set(re.findall(r'\b\d+(?:\.\d+)?\s*V\s*(AC|DC)\b', desc))
+        master_voltages = {
+            (float(value), supply_type)
+            for value, supply_type in re.findall(r'\b(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', desc)
+        }
 
         # Any extracted attribute must be present and consistent in the master description.
         if pole_match and (not item_pole or int(pole_match.group(1)) != int(item_pole.group(1))):
             continue
         if current_match and (not item_current or float(current_match.group(1)) != float(item_current.group(1))):
             continue
-        if requested_supply_types and not requested_supply_types.issubset(master_supply_types):
+        if requested_voltages and not requested_voltages.issubset(master_voltages):
             continue
         # A model match is accepted only after the same attribute validation above.
         if model_candidates and item not in model_candidates:
             continue
         # Do not make a guess if there is neither a model nor enough attributes to verify.
-        if not model_candidates and not (pole_match or current_match or requested_supply_types):
+        if not model_candidates and not (pole_match or current_match or requested_voltages):
             continue
         verified.append(item)
 
