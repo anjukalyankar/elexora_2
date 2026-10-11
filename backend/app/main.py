@@ -608,6 +608,16 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  if unmatched:warnings.append('Master Data match not available for: '+', '.join(unmatched)+'. Source description was preserved; no engineering item was guessed.')
  return {'header':h,'document_no':'SI EA/CS/FR/EG/015','revision':'1.0','effective_date':'17/07/2026','created_by':'EA CS ENGG','description':description,'rows':rows,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'qty':q,'warnings':warnings,'feeder_details':feeder_info,'same_input_file':same}
 
+@app.get('/')
+def root():
+    return {
+        'service': 'ELEXORA 2 API',
+        'status': 'running',
+        'health': '/health',
+        'docs': '/docs',
+    }
+
+
 @app.get('/health')
 def health():
     return {'status':'ok'}
