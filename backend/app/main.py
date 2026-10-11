@@ -150,47 +150,52 @@ def load_mcb_master():
 
 
 def mcb_master_match(description, details, designation):
-    """Prefer exact model match; otherwise match known MCB attributes conservatively."""
+    """Match an MCB only when every identifiable extracted attribute agrees with its master description."""
     text = clean_value(' '.join([description or '', details or '', designation or ''])).upper()
     records = load_mcb_master()
     if not records:
         return None
-    # Exact model number is the strongest identifier.
-    for item in records:
-        model = item.get('model', '').upper()
-        if model and model in text:
-            return item
-    # Attribute fallback: only return a record when pole count and current both match.
-    pole_match = re.search(r'\b(1|2|3|4)\s*(?:P|POLE)S?\b', text)
-    current_match = re.search(r'\b(\d+(?:\.\d+)?)\s*A\b', text)
-    if not pole_match or not current_match:
-        return None
-    poles = int(pole_match.group(1))
-    current = float(current_match.group(1))
-    candidates = []
-    for item in records:
-        desc = item.get('discription', '').upper()
-        item_poles = re.search(r'\b(1|2|3|4)\s*P\b', desc)
+
+    # Extract only attributes actually present in the PDF text.
+    model_candidates = [item for item in records
+                        if item.get('model', '').upper() and item.get('model', '').upper() in text]
+    pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(?:P|POLE)S?\b', text)
+    current_match = re.search(r'\b(?:RATING\s*:\s*)?(\d+(?:\.\d+)?)\s*A\b', text)
+    requested_supply_types = set(re.findall(r'\b\d+(?:\.\d+)?\s*V\s*(AC|DC)\b', text))
+
+    candidates = model_candidates if model_candidates else records
+    verified = []
+    for item in candidates:
+        master_desc = item.get('discription', '')
+        desc = master_desc.upper()
+        item_pole = re.search(r'\bPOLE\s*:\s*(1|2|3|4)\s*P\b', desc)
         item_current = re.search(r'\bRATING\s*:\s*(\d+(?:\.\d+)?)\s*A\b', desc)
-        if item_poles and item_current and int(item_poles.group(1)) == poles and float(item_current.group(1)) == current:
-            candidates.append(item)
-    return candidates[0] if len(candidates) == 1 else None
+        master_supply_types = set(re.findall(r'\b\d+(?:\.\d+)?\s*V\s*(AC|DC)\b', desc))
+
+        # Any extracted attribute must be present and consistent in the master description.
+        if pole_match and (not item_pole or int(pole_match.group(1)) != int(item_pole.group(1))):
+            continue
+        if current_match and (not item_current or float(current_match.group(1)) != float(item_current.group(1))):
+            continue
+        if requested_supply_types and not requested_supply_types.issubset(master_supply_types):
+            continue
+        # A model match is accepted only after the same attribute validation above.
+        if model_candidates and item not in model_candidates:
+            continue
+        # Do not make a guess if there is neither a model nor enough attributes to verify.
+        if not model_candidates and not (pole_match or current_match or requested_supply_types):
+            continue
+        verified.append(item)
+
+    return verified[0] if len(verified) == 1 else None
 
 
 def mcb_spec(item):
-    """Format the matched MCB record for the BOM using the master description."""
+    """Return only the master database DISCRIPTION, preserving its wording and order."""
     if not item:
         return '', []
     description = item.get('discription', '').strip()
-    manufacturer = item.get('manufacturer', '').strip()
-    model = item.get('model', '').strip()
-    lines = []
-    if manufacturer:
-        lines.append(f'{manufacturer.upper()} MAKE')
-    if description:
-        lines.extend(part.strip() for part in description.split(',') if part.strip())
-    if model and not any(model.upper() in line.upper() for line in lines):
-        lines.append(f'MODEL : {model}')
+    lines = [part.strip() for part in description.split(',') if part.strip()]
     return '\n'.join(lines), lines
 
 
@@ -606,6 +611,8 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  if not rows:warnings.append('No equipment rows were confidently extracted from the fixed MSLD table.')
  unmatched=[r['designation'] for r in records if r['master_code']=='UNMATCHED']
  if unmatched:warnings.append('Master Data match not available for: '+', '.join(unmatched)+'. Source description was preserved; no engineering item was guessed.')
+ unmatched_mcb=[r['designation'] for r in records if r['master_code']=='MCB' and not mcb_master_match(r.get('description',''),r.get('details',''),r.get('designation',''))]
+ if unmatched_mcb:warnings.append('MCB specifications could not be fully verified against the master DISCRIPTION for: '+', '.join(unmatched_mcb)+'. Source text was preserved; verify before issuing the BOM.')
  return {'header':h,'document_no':'SI EA/CS/FR/EG/015','revision':'1.0','effective_date':'17/07/2026','created_by':'EA CS ENGG','description':description,'rows':rows,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'qty':q,'warnings':warnings,'feeder_details':feeder_info,'same_input_file':same}
 
 @app.get('/')
