@@ -191,7 +191,7 @@ def mcb_spec(item):
         lines.extend(part.strip() for part in description.split(',') if part.strip())
     if model and not any(model.upper() in line.upper() for line in lines):
         lines.append(f'MODEL : {model}')
-    return '\\n'.join(lines), lines
+    return '\n'.join(lines), lines
 
 
 def extract_led_attributes(description, details, designation):
