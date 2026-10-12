@@ -159,9 +159,24 @@ def mcb_master_match(description, details, designation):
     # These three attributes are mandatory in the extracted PDF text.
     model_candidates = [item for item in records
                         if item.get('model', '').upper() and item.get('model', '').upper() in text]
-    pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(?:P|POLE)S?\b', text)
+    # Accept common BOM spellings such as "1P", "1 POLE", and "POLE: 1P".
+    pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(?:P(?:\s*\+\s*N)?|POLE)\b', text)
     current_match = re.search(r'\b(?:RATING\s*:\s*)?(\d+(?:\.\d+)?)\s*A\b', text)
-    requested_types = set(re.findall(r'\b(AC|DC)\b', text))
+
+    # Prefer the voltage/type attached to a numeric voltage (e.g. 240V AC).
+    # Nearby extracted text can contain both AC and DC from other equipment.
+    voltage_types = set(re.findall(
+        r'\b(?:RATED\s+)?VOLTAGE\s*:?\s*\d+(?:\.\d+)?\s*V?\s*(AC|DC)\b'
+        r'|\b\d+(?:\.\d+)?\s*V\s*(AC|DC)\b',
+        text
+    ))
+    voltage_types = {part for match in voltage_types for part in (match if isinstance(match, tuple) else (match,)) if part}
+    if len(voltage_types) == 1:
+        requested_types = voltage_types
+    else:
+        # Ignore combined notation "AC/DC"; only accept one unambiguous standalone type.
+        type_text = re.sub(r'\bAC\s*/\s*DC\b|\bDC\s*/\s*AC\b', ' ', text)
+        requested_types = set(re.findall(r'\b(AC|DC)\b', type_text))
 
     # If pole, current rating, or AC/DC type is missing or ambiguous, do not match.
     if not pole_match or not current_match or len(requested_types) != 1:
