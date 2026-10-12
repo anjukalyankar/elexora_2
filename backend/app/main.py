@@ -159,8 +159,8 @@ def mcb_master_match(description, details, designation):
     # These three attributes are mandatory in the extracted PDF text.
     model_candidates = [item for item in records
                         if item.get('model', '').upper() and item.get('model', '').upper() in text]
-    # Accept common BOM spellings such as "1P", "1 POLE", and "POLE: 1P".
-    pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(?:P(?:\s*\+\s*N)?|POLE)\b', text)
+    # Capture the complete pole type so 1P and 1P+N are not treated as the same pole.
+    pole_match = re.search(r'\b(?:POLE\s*:\s*)?(1|2|3|4)\s*(P\s*\+\s*N|P|POLE)\b', text)
     current_match = re.search(r'\b(?:RATING\s*:\s*)?(\d+(?:\.\d+)?)\s*A\b', text)
 
     # Prefer the voltage/type attached to a numeric voltage (e.g. 240V AC).
@@ -186,14 +186,16 @@ def mcb_master_match(description, details, designation):
     verified = []
     for item in candidates:
         desc = item.get('discription', '').upper()
-        item_pole = re.search(r'\bPOLE\s*:\s*(1|2|3|4)\s*P\b', desc)
+        item_pole = re.search(r'\bPOLE\s*:\s*(1|2|3|4)\s*(P\s*\+\s*N|P|POLE)\b', desc)
         item_current = re.search(r'\bRATING\s*:\s*(\d+(?:\.\d+)?)\s*A\b', desc)
         master_types = set(re.findall(r'\b(AC|DC)\b', desc))
 
         # All three mandatory attributes must also exist in the master description.
         if not item_pole or not item_current or len(master_types) != 1:
             continue
-        if int(pole_match.group(1)) != int(item_pole.group(1)):
+        requested_pole = pole_match.group(1) + re.sub(r'\s+', '', pole_match.group(2)).upper()
+        master_pole = item_pole.group(1) + re.sub(r'\s+', '', item_pole.group(2)).upper()
+        if requested_pole != master_pole:
             continue
         if float(current_match.group(1)) != float(item_current.group(1)):
             continue
