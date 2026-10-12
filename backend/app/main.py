@@ -150,86 +150,71 @@ def load_mcb_master():
 
 
 def mcb_master_match(description, details, designation):
-    """Match MCB using mandatory current, pole and AC/DC type; numeric voltage is ignored."""
+    """Match an MCB to its master description using current, pole count and AC/DC type."""
     text = clean_value(' '.join([description or '', details or '', designation or ''])).upper()
     records = load_mcb_master()
     if not records:
         return None
 
+    # If the extracted text contains an exact master model, use that record first.
     model_candidates = [
         item for item in records
         if item.get('model', '').upper() and item.get('model', '').upper() in text
     ]
+    candidates = model_candidates if model_candidates else records
 
     def extract_pole(value):
-        # Accept common MSLD formats such as "2 POLE", "2 POLES", "2P",
-        # "1P+N" and "3P + N"; normalize them into the same representation.
-        match = re.search(
-            r'\b(?:POLE\s*:\s*)?([1-4])\s*(P\s*\+\s*N|POLES?|P)\b',
-            value,
-            re.IGNORECASE
-        )
-        if not match:
-            return ''
-        number = match.group(1)
-        suffix = re.sub(r'\s+', '', match.group(2)).upper()
-        if suffix.startswith('POLE'):
-            suffix = 'P'
-        return number + suffix
+        value = re.sub(r'\bPOLES?\s*:\s*', '', value, flags=re.IGNORECASE)
+        value = re.sub(r'\b([1-4])\s*POLES?\b', r'\1P', value, flags=re.IGNORECASE)
+        value = re.sub(r'\b([1-4])\s*P\s*\+\s*N\b', r'\1P+N', value, flags=re.IGNORECASE)
+        match = re.search(r'\b([1-4]P\+N|[1-4]P)\b', value, re.IGNORECASE)
+        return re.sub(r'\s+', '', match.group(1)).upper() if match else ''
 
     def extract_current(value):
-        # Accept 16A, 16 A, 16 AMP or 16 AMPS, including "RATING: 16A".
-        match = re.search(
-            r'\b(?:RATING\s*:\s*)?(\d+(?:\.\d+)?)\s*(?:A\b|AMPS?\b)',
-            value,
-            re.IGNORECASE
-        )
+        # Read the explicit rating first to avoid confusing breaking capacity with current.
+        match = re.search(r'\bRATING\s*:\s*(\d+(?:\.\d+)?)\s*(?:A\b|AMPS?\b)', value, re.IGNORECASE)
+        if not match:
+            match = re.search(r'\b(\d+(?:\.\d+)?)\s*(?:A\b|AMPS?\b)', value, re.IGNORECASE)
         return float(match.group(1)) if match else None
 
     def extract_supply_type(value):
-        # Prefer AC/DC next to a voltage value; voltage number is intentionally ignored.
+        # Numeric voltage is intentionally ignored; only AC vs DC is compared.
         voltage_match = re.search(
-            r'\b(?:RATED\s+)?VOLTAGE\s*:?[ ]*\d+(?:\.\d+)?\s*V?\s*(AC|DC)\b'
+            r'\b(?:RATED\s+)?VOLTAGE\s*:?\s*\d+(?:\.\d+)?\s*V?\s*(AC|DC)\b'
             r'|\b\d+(?:\.\d+)?\s*V\s*(AC|DC)\b',
-            value,
-            re.IGNORECASE
+            value, re.IGNORECASE
         )
         if voltage_match:
             return next((group.upper() for group in voltage_match.groups() if group), '')
-        # Avoid treating the combined label "AC/DC" as a confirmed supply type.
         cleaned = re.sub(r'\bAC\s*/\s*DC\b|\bDC\s*/\s*AC\b', ' ', value, flags=re.IGNORECASE)
-        types = set(re.findall(r'\b(AC|DC)\b', cleaned, re.IGNORECASE))
-        return next(iter(types)).upper() if len(types) == 1 else ''
+        types = set(x.upper() for x in re.findall(r'\b(AC|DC)\b', cleaned, re.IGNORECASE))
+        return next(iter(types)) if len(types) == 1 else ''
 
     requested_pole = extract_pole(text)
     requested_current = extract_current(text)
     requested_type = extract_supply_type(text)
-
-    # Current, pole and AC/DC must all be identifiable in the extracted MCB text.
     if not requested_pole or requested_current is None or not requested_type:
         return None
 
-    candidates = model_candidates if model_candidates else records
     verified = []
     for item in candidates:
-        desc = item.get('discription', '').upper()
-        master_pole = extract_pole(desc)
-        master_current = extract_current(desc)
-        master_type = extract_supply_type(desc)
-
-        # The same three attributes must also be present in the master description.
-        if not master_pole or master_current is None or not master_type:
-            continue
-        if requested_pole != master_pole:
-            continue
-        if requested_current != master_current:
-            continue
-        # Compare AC/DC type only; ignore numeric voltage values.
-        if requested_type != master_type:
+        desc = item.get('discription', '')
+        if (extract_pole(desc) != requested_pole
+                or extract_current(desc) != requested_current
+                or extract_supply_type(desc) != requested_type):
             continue
         verified.append(item)
 
-    return verified[0] if len(verified) == 1 else None
+    # A unique attribute match is safe. If multiple records match, prefer the
+    # material code that explicitly encodes the same AC/pole/current attributes.
+    if len(verified) == 1:
+        return verified[0]
+    if len(verified) > 1:
+        expected_code = f"MCB-{requested_type}-{requested_pole}-{int(requested_current) if requested_current.is_integer() else requested_current}A"
+        exact = [item for item in verified if item.get('material_code', '').upper() == expected_code]
+        if len(exact) == 1:
+            return exact[0]
+    return None
 
 def mcb_spec(item):
     """Return only the master database DISCRIPTION, preserving its wording and order."""
