@@ -623,6 +623,12 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=[]
    editable_indices=[]
   rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code']})
+  if r['master_code']=='MCB':
+   mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
+   has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
+   if has_aux_1no_1nc:
+    mcb_qty = (r['quantity'] or 1)
+    rows.append({'sr':len(rows)+1,'specification':'MCB ADD-ON CONTACT, 1NO+1NC AUXILIARY CONTACT','specification_lines':['MCB ADD-ON CONTACT','1NO+1NC AUXILIARY CONTACT'],'editable_fields':[],'editable_indices':[],'designation':str(r.get('designation',''))+'A','feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':mcb_qty*feeder_qty_num,'eqpt_qty':mcb_qty,'mpd':'','amd':'','master_code':'MCB ADD-ON'})
  return rows,feeder_name,feeder_qty
 
 def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
