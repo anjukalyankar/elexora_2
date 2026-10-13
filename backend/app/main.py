@@ -722,14 +722,14 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             qty = int(qty)
         except (ValueError, TypeError):
             qty = 1
-        # Per-feeder values include repeated feeder quantity; total is their sum.
-        try:
-            feeder_total = int(row.get('total') if row.get('total') is not None else qty)
-        except (ValueError, TypeError):
-            feeder_total = qty
-        entry['feeder_quantities'][idx] += feeder_total
+        # Feeder column shows quantity per typical feeder; total applies the
+        # repeated-feeder count already calculated by build_rows().
+        entry['feeder_quantities'][idx] += qty
         entry['designation_by_feeder'][idx] = row.get('designation', '') or entry['designation_by_feeder'][idx]
-        entry['total'] += feeder_total
+        try:
+            entry['total'] += int(row.get('total') if row.get('total') is not None else qty)
+        except (ValueError, TypeError):
+            entry['total'] += qty
         entry['eqpt_qty'] += qty
     rows = list(merged.values())
     def equipment_order(row):
