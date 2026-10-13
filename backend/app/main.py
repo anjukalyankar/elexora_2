@@ -737,13 +737,13 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         spec = str(row.get('specification', '')).upper()
         if code == 'CT' or re.search(r'\bCURRENT TRANSFORMER\b', spec):
             rank = 0
-        elif code == 'PT' or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b', spec):
+        elif code in ('PT', 'VT') or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b', spec):
             rank = 1
         elif code in ('LA', 'SA') or 'SURGE ARRESTER' in spec:
             rank = 2
         elif code in ('CB', 'VCB', 'BREAKER') or 'CIRCUIT BREAKER' in spec:
             rank = 3
-        elif code == 'MCB' or 'MCB' in spec:
+        elif code.startswith('MCB') or 'MCB' in spec:
             rank = 4
         elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in spec or 'LED' in spec:
             rank = 5
@@ -821,7 +821,7 @@ def export_combined_book(payload):
     ws.page_margins.top = .45
     ws.page_margins.bottom = .4
     ws.sheet_view.showGridLines = False
-    spec_width = max(36, min(78, max([len(str(r.get('specification','')).splitlines()[0]) for r in rows] + [36]) * 0.75))
+    spec_width = max(36, min(78, max([max((len(line) for line in str(r.get('specification','')).splitlines()), default=0) for r in rows] + [36]) * 0.75))
     designation_width = max(14, min(26, max([len(str(r.get('designation',''))) for r in rows] + [14]) * 0.9))
     feeder_width = max(10, min(18, max([len(str(f.get('name',''))) for f in feeders] + [8]) * 0.9))
     widths = [9, spec_width, designation_width] + [feeder_width] * n + [13, 7, 7]
@@ -913,7 +913,7 @@ def export_combined_pdf(payload):
         data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
     available=285*mm
     fixed=[12*mm,88*mm,24*mm,16*mm,16*mm,16*mm]
-    feeder_width=max(10*mm,(available-sum(fixed))/n)
+    feeder_width=max(4*mm,(available-sum(fixed))/n)
     widths=[fixed[0],fixed[1],fixed[2]]+[feeder_width]*n+[fixed[3],fixed[4],fixed[5]]
     tbl=Table(data,colWidths=widths,repeatRows=3)
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(2+n,0)),('SPAN',(3+n,0),(3+n,2)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2))]
