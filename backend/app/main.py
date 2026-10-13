@@ -620,7 +620,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    if h789:
     for part in h789:
      part_lines=part['specification_lines']
-     rows.append({'sr':len(rows)+1,'specification':'\n'.join(part_lines),'specification_lines':part_lines,'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':feeder_qty_num,'eqpt_qty':1,'mpd':'','amd':'','master_code':'LED'})
+     rows.append({'sr':len(rows)+1,'specification':'\n'.join(part_lines),'specification_lines':part_lines,'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':int(r.get('quantity') or 1)*feeder_qty_num,'eqpt_qty':int(r.get('quantity') or 1),'mpd':'','amd':'','master_code':'LED'})
     continue
    spec_lines, led_item = led_spec(r.get('description',''), r.get('details',''), r.get('designation',''))
    spec='\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
