@@ -927,7 +927,7 @@ def export_combined_pdf(payload):
     weight_sum=sum(weights) or n
     feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
     widths=[fixed[0],fixed[1],fixed[2]]+feeder_widths+[fixed[3],fixed[4],fixed[5]]
-    tbl=Table(data,colWidths=widths,repeatRows=3)
+    tbl=Table(data,colWidths=widths,rowHeights=[26,20,28]+[None]*(len(data)-3),repeatRows=3)
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(2+n,0)),('SPAN',(3+n,0),(3+n,2)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
     tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
