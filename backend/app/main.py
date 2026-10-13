@@ -919,8 +919,14 @@ def export_combined_pdf(payload):
         data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
     available=285*mm
     fixed=[12*mm,88*mm,24*mm,16*mm,16*mm,16*mm]
-    feeder_width=max(4*mm,(available-sum(fixed))/n)
-    widths=[fixed[0],fixed[1],fixed[2]]+[feeder_width]*n+[fixed[3],fixed[4],fixed[5]]
+    # Allocate a little more space to long feeder labels, while keeping the
+    # complete table inside landscape A4. Paragraph cells wrap and expand rows.
+    remaining=max(8*mm, available-sum(fixed))
+    feeder_labels=[len(str(f.get('name',''))) for f in feeders]
+    weights=[max(1.0,min(2.0,length/10.0)) for length in feeder_labels]
+    weight_sum=sum(weights) or n
+    feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
+    widths=[fixed[0],fixed[1],fixed[2]]+feeder_widths+[fixed[3],fixed[4],fixed[5]]
     tbl=Table(data,colWidths=widths,repeatRows=3)
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(2+n,0)),('SPAN',(3+n,0),(3+n,2)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
