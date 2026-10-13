@@ -661,6 +661,249 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  if unmatched_mcb:warnings.append('MCB specifications could not be fully verified against the master DISCRIPTION for: '+', '.join(unmatched_mcb)+'. Source text was preserved; verify before issuing the BOM.')
  return {'header':h,'document_no':'SI EA/CS/FR/EG/015','revision':'1.0','effective_date':'17/07/2026','created_by':'EA CS ENGG','description':description,'rows':rows,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'qty':q,'warnings':warnings,'feeder_details':feeder_info,'same_input_file':same}
 
+
+def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, drawing, esd, wo, prep, voltage):
+    """Build one BOM across many MSLDs, using one common DIS as the specification source."""
+    dis_text = pdf_text(dis_bytes, dis_name)
+    all_rows = []
+    feeders = []
+    warnings = []
+    header_source = ""
+    first_ph = {}
+    qty_text = ""
+    for idx, item in enumerate(msld_files):
+        msld_bytes, msld_name = item
+        msld_text = pdf_text(msld_bytes, msld_name)
+        if idx == 0:
+            header_source = msld_text
+            first_ph = extract_header_from_page(msld_bytes, msld_name)
+            source = msld_text + "\n" + dis_text
+            qty_text = first(r'\bQty\.\s*:\s*(\d+x?)\b', source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b', source) or first_ph.get('qty', '')
+        feeder_info, records, file_warnings = extract_fixed_table(msld_bytes, msld_name)
+        if not feeder_info:
+            warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
+            feeder_info = [{'name': os.path.splitext(os.path.basename(msld_name))[0], 'designation': os.path.splitext(os.path.basename(msld_name))[0], 'quantity': '1'}]
+        feeder_name = feeder_info[0].get('designation') or feeder_info[0].get('name') or f"MSLD {idx + 1}"
+        feeder_qty_text = feeder_info[0].get('quantity', '1')
+        qty_match = re.search(r'\d+', str(feeder_qty_text))
+        feeder_qty_num = int(qty_match.group()) if qty_match else 1
+        feeders.append({'name': str(feeder_name), 'qty': str(feeder_qty_text), 'quantity': feeder_qty_num, 'source_file': msld_name})
+        built, _, _ = build_rows(feeder_info, records, msld_text, dis_text)
+        for row in built:
+            row['_feeder_index'] = idx
+            all_rows.append(row)
+        warnings.extend([f"{msld_name}: {w}" for w in file_warnings])
+        unmatched = [r['designation'] for r in records if r['master_code'] == 'UNMATCHED']
+        if unmatched:
+            warnings.append(f"{msld_name}: Master Data match not available for: " + ', '.join(unmatched) + ". Source description was preserved; no engineering item was guessed.")
+        unmatched_mcb = [r['designation'] for r in records if r['master_code'] == 'MCB' and not mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))]
+        if unmatched_mcb:
+            warnings.append(f"{msld_name}: MCB specifications could not be fully verified against the master DISCRIPTION for: " + ', '.join(unmatched_mcb) + ". Source text was preserved; verify before issuing the BOM.")
+    # Merge identical equipment only when its normalized specification and category match.
+    merged = {}
+    for row in all_rows:
+        idx = row.pop('_feeder_index')
+        spec_lines = row.get('specification_lines') or []
+        identity_text = row.get('specification') or '\n'.join(spec_lines)
+        key = (str(row.get('master_code', '')).strip().upper(), re.sub(r'\s+', ' ', identity_text).strip().casefold())
+        if key not in merged:
+            entry = dict(row)
+            entry['sr'] = len(merged) + 1
+            entry['feeder_quantities'] = [0] * len(feeders)
+            entry['designation_by_feeder'] = [''] * len(feeders)
+            entry['total'] = 0
+            entry['eqpt_qty'] = 0
+            merged[key] = entry
+        entry = merged[key]
+        qty = row.get('eqpt_qty')
+        if qty is None:
+            qty = 1
+        try:
+            qty = int(qty)
+        except (ValueError, TypeError):
+            qty = 1
+        entry['feeder_quantities'][idx] += qty
+        entry['designation_by_feeder'][idx] = row.get('designation', '') or entry['designation_by_feeder'][idx]
+        entry['total'] += (row.get('total') if row.get('total') is not None else qty)
+        entry['eqpt_qty'] += qty
+    rows = list(merged.values())
+    for i, row in enumerate(rows, 1):
+        row['sr'] = i
+        designations = []
+        for value in row.pop('designation_by_feeder', []):
+            if value and value not in designations:
+                designations.append(value)
+        row['designation'] = ', '.join(designations)
+        row['feeder_name'] = ''
+        row['feeder_qty'] = ''
+    h = header(header_source, dis_text, client, sales, drawing, esd, wo, prep, voltage)
+    for key in ('client', 'sales_ref', 'drawing', 'wo'):
+        if first_ph.get(key):
+            h[key] = first_ph[key]
+    if first_ph.get('esd'):
+        h['esd'] = first_ph['esd']
+    source = header_source + '\n' + dis_text
+    v = norm_voltage(voltage) or first(r'\b(6\.6|11|33)\s*KV\b', source)
+    description = f'{v}kV SWITCHBOARD' if v else 'SWITCHBOARD'
+    if not rows:
+        warnings.append('No equipment rows were confidently extracted from the supplied MSLD files.')
+    if dis_text.strip():
+        warnings.append('One common DIS supplied: used as the specification source for all MSLDs.')
+    return {
+        'header': h, 'document_no': 'SI EA/CS/FR/EG/015', 'revision': '1.0',
+        'effective_date': '17/07/2026', 'created_by': 'EA CS ENGG',
+        'description': description, 'rows': rows, 'feeders': feeders,
+        'feeder_name': feeders[0]['name'] if feeders else '',
+        'feeder_qty': feeders[0]['qty'] if feeders else '',
+        'qty': qty_text, 'warnings': list(dict.fromkeys(warnings)),
+        'feeder_details': feeders, 'same_input_file': False
+    }
+
+@app.post('/api/bom/preview-multiple')
+async def preview_multiple(
+    client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
+    esd: str = Form(''), wo: str = Form(''), prep_by: str = Form(''),
+    voltage: str = Form(''), mslds: list[UploadFile] = File(...),
+    dis: UploadFile = File(...), user: str = Depends(current_user)
+):
+    if not mslds:
+        raise HTTPException(status_code=400, detail='Upload at least one MSLD PDF.')
+    dis_bytes = await dis.read()
+    items = []
+    for upload in mslds:
+        items.append((await upload.read(), upload.filename or 'MSLD.pdf'))
+    return extract_multiple_from_files(items, dis_bytes, dis.filename or 'DIS.pdf', client, sales_ref, drawing, esd, wo, prep_by, voltage)
+
+def export_combined_book(payload):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'BOM'
+    thin = Side(style='thin')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_data = payload.get('header', {})
+    feeders = payload.get('feeders') or []
+    rows = payload.get('rows') or []
+    n = max(1, len(feeders))
+    total_col = 4 + n
+    mpd_col, amd_col = total_col + 1, total_col + 2
+    last_col = amd_col
+    ws.page_setup.orientation = 'landscape'
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins.left = .25
+    ws.page_margins.right = .25
+    ws.page_margins.top = .45
+    ws.page_margins.bottom = .4
+    ws.sheet_view.showGridLines = False
+    widths = [9, 52, 18] + [10] * n + [12, 7, 7]
+    for col, width in enumerate(widths, 1):
+        ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width = width
+    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=min(3, last_col))
+    ws.cell(1, 1, '-: Equipment List :-')
+    ws.cell(1, 1).font = Font(name='Courier New', size=10)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center', vertical='center')
+    meta_col = max(4, last_col - 2)
+    ws.merge_cells(start_row=1, start_column=meta_col, end_row=2, end_column=last_col)
+    ws.cell(1, meta_col, f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}')
+    ws.cell(1, meta_col).font = Font(name='Arial', size=7)
+    ws.cell(1, meta_col).alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
+    ws.row_dimensions[1].height = 34
+    ws.row_dimensions[2].height = 16
+    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
+        ws.cell(4, col, label)
+    for col in [1,2,3,total_col,mpd_col,amd_col]:
+        ws.merge_cells(start_row=4, start_column=col, end_row=6, end_column=col)
+    ws.merge_cells(start_row=4, start_column=4, end_row=4, end_column=3+n)
+    ws.cell(4,4,'FEEDER TYPICAL')
+    for idx, feeder in enumerate(feeders):
+        col=4+idx
+        ws.cell(5,col,'QTY.')
+        ws.cell(6,col,feeder.get('name',''))
+    for r in range(4,7):
+        for c in range(1,last_col+1):
+            cell=ws.cell(r,c)
+            cell.border=border
+            cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            cell.font=Font(name='Courier New',size=8,bold=True)
+    ws.row_dimensions[4].height=23
+    ws.row_dimensions[5].height=18
+    ws.row_dimensions[6].height=28
+    for i,row in enumerate(rows[:64],7):
+        quantities = row.get('feeder_quantities') or []
+        vals=[row.get('sr',''),row.get('specification',''),row.get('designation','')]
+        vals.extend(quantities[j] if j < len(quantities) and quantities[j] else '' for j in range(n))
+        vals.extend([row.get('total',''),'',''])
+        for col,val in enumerate(vals,1):
+            cell=ws.cell(i,col,val)
+            cell.border=border
+            cell.font=Font(name='Courier New',size=7)
+            cell.alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=col==2)
+        ws.row_dimensions[i].height=max(15,min(180,15*max(1,len(row.get('specification_lines',[])))))
+    for i in range(7+len(rows[:64]),70):
+        for c in range(1,last_col+1):
+            ws.cell(i,c).border=border
+            ws.cell(i,c).font=Font(name='Courier New',size=7)
+        ws.row_dimensions[i].height=15
+    footer_row=72
+    left=[('Item No.','100'),('Client :',header_data.get('client','')),('Sales Ref No.:',header_data.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]
+    mid=[('Description :',payload.get('description','')),('W.O. No.:',header_data.get('wo','')),('Drg. No.:',header_data.get('drawing',''))]
+    right=[('PRE.BY :',header_data.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',header_data.get('esd','')),('','1 of 1')]
+    for i,(label,value) in enumerate(left):
+        ws.cell(footer_row+i,1,label); ws.cell(footer_row+i,2,value)
+    for i,(label,value) in enumerate(mid):
+        ws.cell(footer_row+i,4,label); ws.cell(footer_row+i,5,value)
+    for i,(label,value) in enumerate(right):
+        ws.cell(footer_row+i, max(1,last_col-1),label); ws.cell(footer_row+i,last_col,value)
+    for row_idx in range(footer_row,footer_row+4):
+        for col in range(1,last_col+1):
+            ws.cell(row_idx,col).font=Font(name='Arial',size=7)
+            ws.cell(row_idx,col).alignment=Alignment(vertical='center',wrap_text=True)
+    ws.print_area=f'A1:{__import__("openpyxl").utils.get_column_letter(last_col)}76'
+    return wb
+
+def export_combined_pdf(payload):
+    out=io.BytesIO()
+    doc=SimpleDocTemplate(out,pagesize=__import__('reportlab.lib.pagesizes',fromlist=['landscape']).landscape(A4),rightMargin=6*mm,leftMargin=6*mm,topMargin=10*mm,bottomMargin=25*mm)
+    styles=getSampleStyleSheet()
+    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=9,leading=11,alignment=TA_CENTER)
+    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=6,leading=7,spaceAfter=0,spaceBefore=0)
+    center=ParagraphStyle('combinedcenter',parent=cell,alignment=TA_CENTER)
+    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,leading=7)
+    feeders=payload.get('feeders') or []
+    rows=payload.get('rows') or []
+    n=max(1,len(feeders))
+    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head)] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
+    data.append(['','','']+[Paragraph('QTY.',head) for _ in range(n)]+['','',''])
+    data.append(['','','']+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
+    for row in rows[:64]:
+        spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
+        qs=row.get('feeder_quantities') or []
+        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
+    available=285*mm
+    fixed=[12*mm,88*mm,24*mm,16*mm,16*mm,16*mm]
+    feeder_width=max(10*mm,(available-sum(fixed))/n)
+    widths=[fixed[0],fixed[1],fixed[2]]+[feeder_width]*n+[fixed[3],fixed[4],fixed[5]]
+    tbl=Table(data,colWidths=widths,repeatRows=3)
+    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(2+n,0)),('SPAN',(3+n,0),(3+n,2)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2))]
+    # A compact first-row group label and feeder-specific second/third header rows.
+    tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
+    story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
+    h=payload.get('header',{})
+    def footer(canvas, doc_obj):
+        canvas.saveState()
+        w,hp=doc_obj.pagesize
+        y=8*mm
+        canvas.setFont('Helvetica',6.5)
+        canvas.drawString(6*mm,y+7*mm,f"Client: {h.get('client','')}  Sales Ref: {h.get('sales_ref','')}")
+        canvas.drawString(6*mm,y+4*mm,f"Description: {payload.get('description','')}  WO: {h.get('wo','')}  Drawing: {h.get('drawing','')}")
+        canvas.drawString(6*mm,y+1*mm,f"Prepared by: {h.get('prep_by','')}  Qty: {payload.get('qty','')}  ESD: {h.get('esd','')}")
+        canvas.restoreState()
+    doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
+    out.seek(0)
+    return out
+
 @app.get('/')
 def root():
     return {
@@ -733,6 +976,8 @@ async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''
  m,d=await msld.read(),await dis.read(); return extract_from_files(m,msld.filename,d,dis.filename,client,sales_ref,drawing,esd,wo,prep_by,voltage)
 
 def export_book(payload):
+ if payload.get('feeders'):
+  return export_combined_book(payload)
  wb=Workbook(); ws=wb.active; ws.title='BOM'; thin=Side(style='thin'); border=Border(left=thin,right=thin,top=thin,bottom=thin); h=payload.get('header',{}); rows=payload.get('rows',[]); ws.page_setup.orientation='portrait'; ws.page_setup.paperSize=ws.PAPERSIZE_A4; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=1; ws.sheet_properties.pageSetUpPr.fitToPage=True; ws.page_margins.left=.58; ws.page_margins.right=.75; ws.page_margins.top=.60; ws.page_margins.bottom=.55; ws.sheet_view.showGridLines=False
  for col,width in {'A':12.43,'B':80.99,'C':18.43,'D':10.0,'E':11.87,'F':9.10,'G':5.87,'H':5.87}.items():ws.column_dimensions[col].width=width
  ws.merge_cells('A1:E2'); ws['A1']='-: Equipment List :-'; ws['A1'].font=Font(name='Courier New',size=10); ws['A1'].alignment=Alignment(horizontal='center',vertical='center'); ws['F1']=f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}'; ws['F1'].alignment=Alignment(horizontal='right',vertical='top',wrap_text=True); ws['F1'].font=Font(name='Arial',size=7); ws.merge_cells('F1:H2'); ws.row_dimensions[1].height=34; ws.row_dimensions[2].height=16
@@ -795,6 +1040,8 @@ class NumberedCanvas:
 
 
 def export_pdf(payload):
+    if payload.get('feeders'):
+        return export_combined_pdf(payload)
     out = io.BytesIO()
     doc = SimpleDocTemplate(
         out, pagesize=A4,
