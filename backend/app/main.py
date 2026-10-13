@@ -722,11 +722,35 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             qty = int(qty)
         except (ValueError, TypeError):
             qty = 1
-        entry['feeder_quantities'][idx] += qty
+        # Per-feeder values include repeated feeder quantity; total is their sum.
+        try:
+            feeder_total = int(row.get('total') if row.get('total') is not None else qty)
+        except (ValueError, TypeError):
+            feeder_total = qty
+        entry['feeder_quantities'][idx] += feeder_total
         entry['designation_by_feeder'][idx] = row.get('designation', '') or entry['designation_by_feeder'][idx]
-        entry['total'] += (row.get('total') if row.get('total') is not None else qty)
+        entry['total'] += feeder_total
         entry['eqpt_qty'] += qty
     rows = list(merged.values())
+    def equipment_order(row):
+        code = str(row.get('master_code', '')).strip().upper()
+        spec = str(row.get('specification', '')).upper()
+        if code == 'CT' or re.search(r'\bCURRENT TRANSFORMER\b', spec):
+            rank = 0
+        elif code == 'PT' or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b', spec):
+            rank = 1
+        elif code in ('LA', 'SA') or 'SURGE ARRESTER' in spec:
+            rank = 2
+        elif code in ('CB', 'VCB', 'BREAKER') or 'CIRCUIT BREAKER' in spec:
+            rank = 3
+        elif code == 'MCB' or 'MCB' in spec:
+            rank = 4
+        elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in spec or 'LED' in spec:
+            rank = 5
+        else:
+            rank = 6
+        return (rank, code, re.sub(r'\s+', ' ', spec).casefold(), str(row.get('designation', '')).casefold())
+    rows.sort(key=equipment_order)
     for i, row in enumerate(rows, 1):
         row['sr'] = i
         designations = []
@@ -797,7 +821,10 @@ def export_combined_book(payload):
     ws.page_margins.top = .45
     ws.page_margins.bottom = .4
     ws.sheet_view.showGridLines = False
-    widths = [9, 52, 18] + [10] * n + [12, 7, 7]
+    spec_width = max(36, min(78, max([len(str(r.get('specification','')).splitlines()[0]) for r in rows] + [36]) * 0.75))
+    designation_width = max(14, min(26, max([len(str(r.get('designation',''))) for r in rows] + [14]) * 0.9))
+    feeder_width = max(10, min(18, max([len(str(f.get('name',''))) for f in feeders] + [8]) * 0.9))
+    widths = [9, spec_width, designation_width] + [feeder_width] * n + [13, 7, 7]
     for col, width in enumerate(widths, 1):
         ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width = width
     ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=min(3, last_col))
@@ -840,7 +867,10 @@ def export_combined_book(payload):
             cell.border=border
             cell.font=Font(name='Courier New',size=7)
             cell.alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=col==2)
-        ws.row_dimensions[i].height=max(15,min(180,15*max(1,len(row.get('specification_lines',[])))))
+        spec_lines = str(row.get('specification', '')).splitlines() or ['']
+        chars_per_line = max(12, int(spec_width * 1.35))
+        wrapped_lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line) for line in spec_lines)
+        ws.row_dimensions[i].height = max(18, min(240, 10 * wrapped_lines + 6))
     for i in range(7+len(rows[:64]),70):
         for c in range(1,last_col+1):
             ws.cell(i,c).border=border
@@ -868,7 +898,7 @@ def export_combined_pdf(payload):
     doc=SimpleDocTemplate(out,pagesize=__import__('reportlab.lib.pagesizes',fromlist=['landscape']).landscape(A4),rightMargin=6*mm,leftMargin=6*mm,topMargin=10*mm,bottomMargin=25*mm)
     styles=getSampleStyleSheet()
     title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=9,leading=11,alignment=TA_CENTER)
-    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=6,leading=7,spaceAfter=0,spaceBefore=0)
+    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=6,leading=7,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
     center=ParagraphStyle('combinedcenter',parent=cell,alignment=TA_CENTER)
     head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,leading=7)
     feeders=payload.get('feeders') or []
