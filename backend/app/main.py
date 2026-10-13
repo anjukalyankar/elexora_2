@@ -149,6 +149,16 @@ def load_mcb_master():
     return records
 
 
+def load_mcb_addon_master():
+    import csv
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+    if not os.path.exists(path): return None
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh):
+            if (row.get('CATEGORY') or '').strip().upper() == 'ADDON' and (row.get('MATERIAL_CODE') or '').strip().upper() == 'MCB-ADDON':
+                return {key.lower(): (value or '').strip() for key, value in row.items()}
+    return None
+
 def mcb_master_match(description, details, designation):
     """Match an MCB to its master description using current, pole count and AC/DC type."""
     text = clean_value(' '.join([description or '', details or '', designation or ''])).upper()
@@ -628,7 +638,11 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
    if has_aux_1no_1nc:
     mcb_qty = (r['quantity'] or 1)
-    rows.append({'sr':len(rows)+1,'specification':'MCB ADD-ON CONTACT, 1NO+1NC AUXILIARY CONTACT','specification_lines':['MCB ADD-ON CONTACT','1NO+1NC AUXILIARY CONTACT'],'editable_fields':[],'editable_indices':[],'designation':str(r.get('designation',''))+'A','feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':mcb_qty*feeder_qty_num,'eqpt_qty':mcb_qty,'mpd':'','amd':'','master_code':'MCB ADD-ON'})
+    addon_item = load_mcb_addon_master()
+    if addon_item and addon_item.get('discription'):
+     addon_spec = addon_item['discription']
+     addon_lines = [part.strip() for part in addon_spec.split(',') if part.strip()]
+     rows.append({'sr':len(rows)+1,'specification':'\n'.join(addon_lines),'specification_lines':addon_lines,'editable_fields':[],'editable_indices':[],'designation':str(r.get('designation',''))+'A','feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':mcb_qty*feeder_qty_num,'eqpt_qty':mcb_qty,'mpd':'','amd':'','master_code':'MCB ADD-ON'})
  return rows,feeder_name,feeder_qty
 
 def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
