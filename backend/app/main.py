@@ -722,34 +722,40 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             qty = int(qty)
         except (ValueError, TypeError):
             qty = 1
-        # Feeder column shows quantity per typical feeder; total applies the
-        # repeated-feeder count already calculated by build_rows().
+        # Feeder columns show equipment quantity per typical panel. Total is
+        # calculated only after merging, using that feeder's panel multiplier.
         entry['feeder_quantities'][idx] += qty
         entry['designation_by_feeder'][idx] = row.get('designation', '') or entry['designation_by_feeder'][idx]
-        try:
-            entry['total'] += int(row.get('total') if row.get('total') is not None else qty)
-        except (ValueError, TypeError):
-            entry['total'] += qty
         entry['eqpt_qty'] += qty
     rows = list(merged.values())
+    for row in rows:
+        quantities = row.get('feeder_quantities') or []
+        row['total'] = sum(
+            (int(quantities[i] or 0) if i < len(quantities) else 0)
+            * int(feeders[i].get('quantity') or 1)
+            for i in range(len(feeders))
+        )
     def equipment_order(row):
         code = str(row.get('master_code', '')).strip().upper()
         spec = str(row.get('specification', '')).upper()
-        if code == 'CT' or re.search(r'\bCURRENT TRANSFORMER\b', spec):
+        text = ' '.join([code, spec, str(row.get('designation', '')).upper()])
+        # Keep corresponding equipment from all MSLDs together in a stable,
+        # engineering-oriented category order.
+        if code == 'CT' or re.search(r'\bCURRENT TRANSFORMER\b|\bC\.T\.\b', text):
             rank = 0
-        elif code in ('PT', 'VT') or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b', spec):
+        elif code in ('PT', 'VT') or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b|\bP\.T\.\b', text):
             rank = 1
-        elif code in ('LA', 'SA') or 'SURGE ARRESTER' in spec:
+        elif code in ('LA', 'SA') or 'SURGE ARRESTER' in text:
             rank = 2
-        elif code in ('CB', 'VCB', 'BREAKER') or 'CIRCUIT BREAKER' in spec:
+        elif code in ('CB', 'VCB', 'BREAKER') or 'CIRCUIT BREAKER' in text:
             rank = 3
-        elif code.startswith('MCB') or 'MCB' in spec:
+        elif code.startswith('MCB') or re.search(r'\bMCB\b', text):
             rank = 4
-        elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in spec or 'LED' in spec:
+        elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in text or re.search(r'\bLED\b', text):
             rank = 5
         else:
             rank = 6
-        return (rank, code, re.sub(r'\s+', ' ', spec).casefold(), str(row.get('designation', '')).casefold())
+        return (rank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
     rows.sort(key=equipment_order)
     for i, row in enumerate(rows, 1):
         row['sr'] = i
