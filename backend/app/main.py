@@ -725,7 +725,16 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         # Feeder columns show equipment quantity per typical panel. Total is
         # calculated only after merging, using that feeder's panel multiplier.
         entry['feeder_quantities'][idx] += qty
-        entry['designation_by_feeder'][idx] = row.get('designation', '') or entry['designation_by_feeder'][idx]
+        designation = str(row.get('designation', '') or '').strip()
+        if designation:
+            existing = entry['designation_by_feeder'][idx]
+            if isinstance(existing, list):
+                if designation not in existing:
+                    existing.append(designation)
+            elif existing and existing != designation:
+                entry['designation_by_feeder'][idx] = [existing, designation]
+            else:
+                entry['designation_by_feeder'][idx] = [designation]
         entry['eqpt_qty'] += qty
     rows = list(merged.values())
     for row in rows:
@@ -770,9 +779,13 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
     for i, row in enumerate(rows, 1):
         row['sr'] = i
         designations = []
-        for value in row.pop('designation_by_feeder', []):
-            if value and value not in designations:
-                designations.append(value)
+        for values in row.pop('designation_by_feeder', []):
+            if isinstance(values, str):
+                values = [values]
+            for value in values or []:
+                value = str(value).strip()
+                if value and value not in designations:
+                    designations.append(value)
         row['designation'] = ', '.join(designations)
         row['feeder_name'] = ''
         row['feeder_qty'] = ''
@@ -913,12 +926,12 @@ def export_combined_book(payload):
 
 def export_combined_pdf(payload):
     out=io.BytesIO()
-    doc=SimpleDocTemplate(out,pagesize=__import__('reportlab.lib.pagesizes',fromlist=['landscape']).landscape(A4),rightMargin=8*mm,leftMargin=8*mm,topMargin=6*mm,bottomMargin=20*mm)
+    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=6*mm,bottomMargin=20*mm)
     styles=getSampleStyleSheet()
-    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=7,leading=8,alignment=TA_CENTER)
-    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.8,leading=5.6,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
+    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=6,leading=7,alignment=TA_CENTER)
+    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.2,leading=4.8,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
     center=ParagraphStyle('combinedcenter',parent=cell,alignment=TA_CENTER)
-    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,fontSize=4.6,leading=5.2)
+    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,fontSize=4.0,leading=4.5)
     feeders=payload.get('feeders') or []
     rows=payload.get('rows') or []
     n=max(1,len(feeders))
@@ -929,8 +942,8 @@ def export_combined_pdf(payload):
         spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
         qs=row.get('feeder_quantities') or []
         data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
-    available=281*mm
-    fixed=[10*mm,90*mm,20*mm,10*mm,13*mm,13*mm,13*mm]
+    available=200*mm
+    fixed=[8*mm,66*mm,25*mm,9*mm,12*mm,10*mm,10*mm]
     # Allocate a little more space to long feeder labels, while keeping the
     # complete table inside landscape A4. Paragraph cells wrap and expand rows.
     remaining=max(8*mm, available-sum(fixed))
@@ -940,7 +953,7 @@ def export_combined_pdf(payload):
     feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
     widths=[fixed[0],fixed[1],fixed[2],fixed[3]]+feeder_widths+[fixed[4],fixed[5],fixed[6]]
     tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
-    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
+    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
     tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
     story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
