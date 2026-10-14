@@ -819,7 +819,7 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
     }
 
 @app.post('/api/bom/check-customers')
-async def check_mslD_customers(mslds: list[UploadFile] = File(...), user: str = Depends(current_user)):
+async def check_msld_customers(mslds: list[UploadFile] = File(...), user: str = Depends(current_user)):
     """Read customer names from each MSLD before BOM generation."""
     results = []
     for upload in mslds:
@@ -829,10 +829,17 @@ async def check_mslD_customers(mslds: list[UploadFile] = File(...), user: str = 
         customer = clean_value(extracted.get('client', ''))
         if not customer:
             source_text = pdf_text(data, filename)
-            customer = first(r'Client\\s*:?[ \\t]*([^\\n]+)', source_text) or first(r'Customer\\s*Name\\s*:?[ \\t]*([^\\n]+)', source_text)
+            customer = first(r'Client\s*:?[ \t]*([^\n]+)', source_text) or first(r'Customer\s*Name\s*:?[ \t]*([^\n]+)', source_text)
         results.append({'filename': filename, 'customer': clean_value(customer)})
     known = [x['customer'] for x in results if x['customer']]
-    return {'mslds': results, 'different_customers': len({re.sub(r'\\s+', ' ', x).strip().casefold() for x in known}) > 1, 'unknown_customer_files': [x['filename'] for x in results if not x['customer']]}
+    unique_customers = list(dict.fromkeys(re.sub(r'\s+', ' ', x).strip() for x in known))
+    normalized_customers = {x.casefold() for x in unique_customers}
+    return {
+        'mslds': results,
+        'different_customers': len(normalized_customers) > 1,
+        'customers': unique_customers,
+        'unknown_customer_files': [x['filename'] for x in results if not x['customer']]
+    }
 
 
 @app.post('/api/bom/preview-multiple')
