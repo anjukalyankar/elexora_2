@@ -730,19 +730,21 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
     rows = list(merged.values())
     for row in rows:
         quantities = row.get('feeder_quantities') or []
-        actual_quantities = []
+        per_feeder_quantities = []
+        total = 0
         for i, feeder in enumerate(feeders):
             try:
-                per_panel = int(quantities[i] or 0) if i < len(quantities) else 0
+                equipment_qty = int(quantities[i] or 0) if i < len(quantities) else 0
             except (TypeError, ValueError):
-                per_panel = 0
+                equipment_qty = 0
             try:
-                panel_count = int(feeder.get('quantity') or 1)
+                feeder_qty = int(feeder.get('quantity') or 1)
             except (TypeError, ValueError):
-                panel_count = 1
-            actual_quantities.append(per_panel * max(1, panel_count))
-        row['feeder_quantities'] = actual_quantities
-        row['total'] = sum(actual_quantities)
+                feeder_qty = 1
+            per_feeder_quantities.append(equipment_qty)
+            total += equipment_qty * max(1, feeder_qty)
+        row['feeder_quantities'] = per_feeder_quantities
+        row['total'] = total
     def equipment_order(row):
         code = str(row.get('master_code', '')).strip().upper()
         spec = str(row.get('specification', '')).upper()
@@ -917,7 +919,7 @@ def export_combined_pdf(payload):
     n=max(1,len(feeders))
     data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head)] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
     data.append(['','','']+[Paragraph('QTY.',head) for _ in range(n)]+['','',''])
-    data.append(['','','']+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
+    data.append(['','','']+[Paragraph((str(f.get('name',''))+'<br/><b>'+str(f.get('qty') or f.get('quantity') or '')+'</b>'),head) for f in feeders]+['','',''])
     for row in rows[:64]:
         spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
         qs=row.get('feeder_quantities') or []
