@@ -856,18 +856,18 @@ def export_combined_book(payload):
     ws.cell(1, meta_col).alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
     ws.row_dimensions[1].height = 34
     ws.row_dimensions[2].height = 16
-    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(qty_col,'QTY.'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
+    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
         ws.cell(4, col, label)
-    for col in [1,2,3,qty_col,total_col,mpd_col,amd_col]:
+    for col in [1,2,3,total_col,mpd_col,amd_col]:
         ws.merge_cells(start_row=4, start_column=col, end_row=6, end_column=col)
+    ws.merge_cells(start_row=5, start_column=qty_col, end_row=6, end_column=qty_col)
+    ws.cell(5,qty_col,'QTY.')
     ws.merge_cells(start_row=4, start_column=feeder_start_col, end_row=4, end_column=feeder_start_col+n-1)
     ws.cell(4,feeder_start_col,'FEEDER TYPICAL')
-    ws.cell(5,qty_col,'')
-    ws.cell(6,qty_col, (feeders[0].get('quantity') or feeders[0].get('qty') or 1) if feeders else 1)
-    for idx, feeder in enumerate(feeders):
+        for idx, feeder in enumerate(feeders):
         col=feeder_start_col+idx
         ws.cell(5,col,feeder.get('name',''))
-        ws.cell(6,col,feeder.get('quantity_per_panel') or '')
+        ws.cell(6,col,feeder.get('quantity') or feeder.get('qty') or 1)
     for r in range(4,7):
         for c in range(1,last_col+1):
             cell=ws.cell(r,c)
@@ -922,9 +922,9 @@ def export_combined_pdf(payload):
     feeders=payload.get('feeders') or []
     rows=payload.get('rows') or []
     n=max(1,len(feeders))
-    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head),Paragraph('QTY.',head)] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
-    data.append(['','','','']+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
-    data.append(['','','',Paragraph(str((feeders[0].get('quantity') or feeders[0].get('qty') or 1) if feeders else 1),center)]+[Paragraph(str(f.get('quantity_per_panel') or ''),center) for f in feeders]+['','',''])
+    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head),''] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
+    data.append(['','','',Paragraph('QTY.',head)]+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
+    data.append(['','','','']+[Paragraph(str(f.get('quantity') or f.get('qty') or 1),center) for f in feeders]+['','',''])
     for row in rows[:64]:
         spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
         qs=row.get('feeder_quantities') or []
@@ -940,7 +940,7 @@ def export_combined_pdf(payload):
     feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
     widths=[fixed[0],fixed[1],fixed[2],fixed[3]]+feeder_widths+[fixed[4],fixed[5],fixed[6]]
     tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
-    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
+    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
     tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
     story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
