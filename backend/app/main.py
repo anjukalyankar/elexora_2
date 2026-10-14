@@ -894,8 +894,9 @@ def export_combined_book(payload):
         quantities = row.get('feeder_quantities') or []
         vals=[row.get('sr',''),row.get('specification',''),row.get('designation','')]
         vals.append('')
-        vals.extend(quantities[j] if j < len(quantities) and quantities[j] else '' for j in range(n))
-        vals.extend([row.get('total',''),'',''])
+        vals.extend(quantities[j] if j < len(quantities) and quantities[j] not in (0, '0', None, '') else '' for j in range(n))
+        total_value = row.get('total', '')
+        vals.extend(['' if total_value in (0, '0') else total_value, '', ''])
         for col,val in enumerate(vals,1):
             cell=ws.cell(i,col,val)
             cell.border=border
@@ -941,7 +942,7 @@ def export_combined_pdf(payload):
     for row in rows[:64]:
         spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
         qs=row.get('feeder_quantities') or []
-        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
+        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] not in (0, '0', None, '') else ''),center) for i in range(n)]+[Paragraph('' if row.get('total') in (0, '0') else str(row.get('total') or ''),center),'',''])
     available=200*mm
     fixed=[8*mm,66*mm,25*mm,9*mm,12*mm,10*mm,10*mm]
     # Allocate a little more space to long feeder labels, while keeping the
