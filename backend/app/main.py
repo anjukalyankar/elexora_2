@@ -824,7 +824,9 @@ def export_combined_book(payload):
     feeders = payload.get('feeders') or []
     rows = payload.get('rows') or []
     n = max(1, len(feeders))
-    total_col = 4 + n
+    qty_col = 4
+    feeder_start_col = 5
+    total_col = feeder_start_col + n
     mpd_col, amd_col = total_col + 1, total_col + 2
     last_col = amd_col
     ws.page_setup.orientation = 'landscape'
@@ -840,7 +842,7 @@ def export_combined_book(payload):
     spec_width = max(36, min(78, max([max((len(line) for line in str(r.get('specification','')).splitlines()), default=0) for r in rows] + [36]) * 0.75))
     designation_width = max(14, min(26, max([len(str(r.get('designation',''))) for r in rows] + [14]) * 0.9))
     feeder_width = max(10, min(18, max([len(str(f.get('name',''))) for f in feeders] + [8]) * 0.9))
-    widths = [9, spec_width, designation_width] + [feeder_width] * n + [13, 7, 7]
+    widths = [9, spec_width, designation_width, 9] + [feeder_width] * n + [13, 7, 7]
     for col, width in enumerate(widths, 1):
         ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width = width
     ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=min(3, last_col))
@@ -854,16 +856,18 @@ def export_combined_book(payload):
     ws.cell(1, meta_col).alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
     ws.row_dimensions[1].height = 34
     ws.row_dimensions[2].height = 16
-    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
+    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(qty_col,'QTY.'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
         ws.cell(4, col, label)
-    for col in [1,2,3,total_col,mpd_col,amd_col]:
+    for col in [1,2,3,qty_col,total_col,mpd_col,amd_col]:
         ws.merge_cells(start_row=4, start_column=col, end_row=6, end_column=col)
-    ws.merge_cells(start_row=4, start_column=4, end_row=4, end_column=3+n)
-    ws.cell(4,4,'FEEDER TYPICAL')
+    ws.merge_cells(start_row=4, start_column=feeder_start_col, end_row=4, end_column=feeder_start_col+n-1)
+    ws.cell(4,feeder_start_col,'FEEDER TYPICAL')
+    ws.cell(5,qty_col,'')
+    ws.cell(6,qty_col, (feeders[0].get('quantity') or feeders[0].get('qty') or 1) if feeders else 1)
     for idx, feeder in enumerate(feeders):
-        col=4+idx
-        ws.cell(5,col,'QTY.')
-        ws.cell(6,col,feeder.get('name',''))
+        col=feeder_start_col+idx
+        ws.cell(5,col,feeder.get('name',''))
+        ws.cell(6,col,feeder.get('quantity_per_panel') or '')
     for r in range(4,7):
         for c in range(1,last_col+1):
             cell=ws.cell(r,c)
@@ -876,6 +880,7 @@ def export_combined_book(payload):
     for i,row in enumerate(rows[:64],7):
         quantities = row.get('feeder_quantities') or []
         vals=[row.get('sr',''),row.get('specification',''),row.get('designation','')]
+        vals.append('')
         vals.extend(quantities[j] if j < len(quantities) and quantities[j] else '' for j in range(n))
         vals.extend([row.get('total',''),'',''])
         for col,val in enumerate(vals,1):
@@ -917,15 +922,15 @@ def export_combined_pdf(payload):
     feeders=payload.get('feeders') or []
     rows=payload.get('rows') or []
     n=max(1,len(feeders))
-    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head)] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
-    data.append(['','','']+[Paragraph('QTY.',head) for _ in range(n)]+['','',''])
-    data.append(['','','']+[Paragraph((str(f.get('name',''))+'<br/><b>'+str(f.get('qty') or f.get('quantity') or '')+'</b>'),head) for f in feeders]+['','',''])
+    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head),Paragraph('QTY.',head)] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
+    data.append(['','','','']+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
+    data.append(['','','',Paragraph(str((feeders[0].get('quantity') or feeders[0].get('qty') or 1) if feeders else 1),center)]+[Paragraph(str(f.get('quantity_per_panel') or ''),center) for f in feeders]+['','',''])
     for row in rows[:64]:
         spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
         qs=row.get('feeder_quantities') or []
-        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
+        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
     available=281*mm
-    fixed=[10*mm,90*mm,20*mm,13*mm,13*mm,13*mm]
+    fixed=[10*mm,90*mm,20*mm,10*mm,13*mm,13*mm,13*mm]
     # Allocate a little more space to long feeder labels, while keeping the
     # complete table inside landscape A4. Paragraph cells wrap and expand rows.
     remaining=max(8*mm, available-sum(fixed))
@@ -933,9 +938,9 @@ def export_combined_pdf(payload):
     weights=[max(1.0,min(2.0,length/10.0)) for length in feeder_labels]
     weight_sum=sum(weights) or n
     feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
-    widths=[fixed[0],fixed[1],fixed[2]]+feeder_widths+[fixed[3],fixed[4],fixed[5]]
+    widths=[fixed[0],fixed[1],fixed[2],fixed[3]]+feeder_widths+[fixed[4],fixed[5],fixed[6]]
     tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
-    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(2+n,0)),('SPAN',(3+n,0),(3+n,2)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2))]
+    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
     tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
     story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
