@@ -888,6 +888,8 @@ async def check_msld_customers(
         ('Voltage', voltages, dis_voltage, entered['voltage'])
     ]:
         all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
+        if label == 'Voltage':
+            all_values = distinct([norm_voltage(value) or value for value in all_values])
         if len({x.casefold() for x in all_values}) > 1:
             mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
     return {
