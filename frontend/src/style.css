@@ -59,3 +59,60 @@ header .admin-button + .signout{margin-left:0}
 .loginbox{border:1px solid #e0e8f0;border-radius:18px;box-shadow:0 20px 55px #153d6012}
 .loginbox h1{letter-spacing:-.5px}
 @media(max-width:800px){header{padding:0 18px;gap:10px;flex-wrap:wrap;height:auto;min-height:72px;padding-top:12px;padding-bottom:12px}.brand{font-size:21px}.tag{font-size:11px;flex:1}.admin-button{margin-left:auto}.signout{margin-left:0}main{padding:22px 12px}.hero{padding:24px 20px}.card{padding:20px}.grid{grid-template-columns:1fr}.modal-actions button{flex:1}.warning-modal{padding:22px}.loginbox{width:min(390px,calc(100% - 28px));padding:30px}}
+
+
+/* ELEXORA visual refresh — presentation only; BOM processing remains unchanged */
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17243a;background:#f3f6fb;font-synthesis:none;text-rendering:optimizeLegibility}
+body{background:radial-gradient(ellipse at 10% 0%,#e3edff 0,transparent 34%),#f4f7fb;color:#17243a}
+.app{min-height:100vh}
+header{height:78px;padding:0 clamp(20px,5vw,76px);background:linear-gradient(110deg,#101e3a,#173d63 72%,#155e75);box-shadow:0 8px 28px #132b4a24;gap:18px}
+.brand{font-size:24px;letter-spacing:2.8px;font-weight:850}
+.tag{font-size:13px;letter-spacing:.15px;color:#d7e8ff;opacity:1}
+header button{border-radius:11px!important;font-weight:650}
+main{max-width:1360px;padding:38px clamp(16px,3vw,36px) 60px}
+.hero{position:relative;overflow:hidden;margin:0 0 25px;padding:34px 36px;border-radius:22px;background:linear-gradient(115deg,#102746,#174a70 62%,#087e8b);color:#fff;box-shadow:0 18px 38px #17395722}
+.hero:after{content:"";position:absolute;width:240px;height:240px;border:1px solid #ffffff20;border-radius:50%;right:7%;top:-130px;box-shadow:0 0 0 28px #ffffff08,0 0 0 58px #ffffff06}
+.hero h1{font-size:clamp(27px,3vw,39px);letter-spacing:-1.1px;margin:0 0 10px;font-weight:800}
+.hero p{max-width:680px;line-height:1.7;color:#dceaff;margin:0;font-size:15px}
+.card{border:1px solid #e2e9f3;border-radius:20px;background:#fff;padding:28px;box-shadow:0 12px 32px #1b34500b;margin-bottom:24px}
+.card h2{font-size:20px;letter-spacing:-.35px;margin:0 0 8px;color:#142943}
+.card p{color:#6b7b91;line-height:1.6}
+.grid{gap:18px}
+label{color:#31445e;font-size:13px;font-weight:700;letter-spacing:.1px}
+input:not([type=file]),select,textarea{margin-top:8px;width:100%;border:1px solid #d7e1ed;border-radius:11px;background:#fbfdff;color:#17243a;padding:13px 14px;font:inherit;outline:none;transition:border-color .18s,box-shadow .18s}
+input:not([type=file]):focus,select:focus,textarea:focus{border-color:#2386b5;box-shadow:0 0 0 4px #2386b51c;background:#fff}
+.uploads{gap:16px;margin:22px 0}
+.upload{border:1.5px dashed #b7cbe0!important;border-radius:15px!important;background:linear-gradient(145deg,#f8fbff,#f1f7fd)!important;padding:20px!important;transition:border-color .18s,background .18s}
+.upload:hover{border-color:#2588b7!important;background:#eef8ff!important}
+.upload span{color:#71839b!important;line-height:1.55}
+button{border:0;border-radius:11px;background:linear-gradient(110deg,#126b9a,#087f8c);color:#fff;padding:12px 18px;font:inherit;font-size:14px;font-weight:750;box-shadow:0 5px 12px #087f8c20;transition:transform .15s,filter .15s,box-shadow .15s}
+button:hover:not(:disabled){filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 8px 17px #087f8c2b}
+button:disabled{opacity:.62;cursor:wait}
+.secondary-button{background:#eaf1f8!important;color:#26415f!important;box-shadow:none!important}
+.signout{background:#ffffff12!important;border:1px solid #ffffff40!important;color:#fff}
+.admin-button{background:#d8f5f2!important;color:#075b65!important;box-shadow:none!important;margin-left:auto}
+.error,.warning,.auth-error{border-radius:12px;padding:14px 16px;line-height:1.5}
+.error,.auth-error{background:#fff0f0;border:1px solid #ffd1d1;color:#9c2b2b}
+.warning{background:#fff8e8;border:1px solid #f3d38b;color:#805314;margin:12px 0}
+.preview-card{padding:26px;overflow:hidden}
+.bomhead{gap:18px;align-items:center}
+.export-actions{display:flex;gap:10px;flex-wrap:wrap}
+.preview-scroll,.history-scroll{overflow:auto;border-radius:12px}
+.admin-history{border-color:#c8e5e6}
+.history-count{display:inline-flex;gap:14px;align-items:center;margin:16px 0;padding:15px 20px;border-radius:14px;background:#effafa;color:#245064}
+.history-count strong{font-size:28px;color:#087f8c}
+.history-table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+.history-table th{background:#edf4fa;color:#334a64;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.65px}
+.history-table th,.history-table td{padding:12px 13px;border-bottom:1px solid #e7edf4;vertical-align:top}
+.history-table tr:last-child td{border-bottom:0}
+.history-table td{color:#42536b}
+.modal-backdrop{background:#0b1b31b8!important;backdrop-filter:blur(5px);padding:20px}
+.warning-modal{border:1px solid #f2d7a1!important;border-radius:20px!important;box-shadow:0 28px 90px #07152b66!important;padding:30px!important;max-height:88vh;overflow:auto}
+.modal-icon{border-radius:14px!important;background:#fff0cf!important;color:#a65a00!important;font-weight:900}
+.modal-warning{border-radius:11px!important;border:1px solid #f0d59e!important;background:#fff9ec!important;color:#784c0b!important;padding:13px 15px!important;line-height:1.5}
+.modal-detail{border-radius:12px;background:#f5f8fc;padding:14px 16px;margin-top:12px}
+.login{background:radial-gradient(ellipse at 10% 0%,#dbe9ff,transparent 40%),#f4f7fb}
+.loginbox{border:1px solid #e2e9f3!important;border-radius:24px!important;box-shadow:0 25px 80px #19365720!important;padding:38px!important}
+.loginbox .brand{color:#123858}
+.loginbox button{width:100%}
+@media(max-width:760px){header{height:auto;min-height:72px;flex-wrap:wrap;padding:16px 18px;gap:10px}.brand{font-size:21px}.tag{flex:1 1 100%;order:3}.admin-button{margin-left:auto}main{padding:22px 14px 40px}.hero{padding:25px 22px;border-radius:18px}.card{padding:20px;border-radius:16px}.grid{grid-template-columns:1fr!important}.uploads{grid-template-columns:1fr!important}.bomhead{align-items:flex-start;flex-direction:column}.export-actions{width:100%}.export-actions button{flex:1}.warning-modal{padding:22px!important}}
