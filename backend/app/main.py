@@ -618,9 +618,15 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   elif r['master_code']=='LED':
    h789 = led_specs_for_h7_h8_h9(r.get('description',''), r.get('details',''), r.get('designation',''))
    if h789:
-    for part in h789:
+    # Split the source quantity across the colour-specific H7/H8/H9 rows.
+    # Example: source qty 3 and three colours -> 1 each, total remains 3 per feeder.
+    group_qty = int(r.get('quantity') or 1)
+    split_count = len(h789)
+    base_qty, remainder = divmod(group_qty, split_count)
+    for part_index, part in enumerate(h789):
      part_lines=part['specification_lines']
-     rows.append({'sr':len(rows)+1,'specification':'\n'.join(part_lines),'specification_lines':part_lines,'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':int(r.get('quantity') or 1)*feeder_qty_num,'eqpt_qty':int(r.get('quantity') or 1),'mpd':'','amd':'','master_code':'LED'})
+     part_qty = base_qty + (1 if part_index < remainder else 0)
+     rows.append({'sr':len(rows)+1,'specification':'\n'.join(part_lines),'specification_lines':part_lines,'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':part_qty*feeder_qty_num,'eqpt_qty':part_qty,'mpd':'','amd':'','master_code':'LED'})
     continue
    spec_lines, led_item = led_spec(r.get('description',''), r.get('details',''), r.get('designation',''))
    spec='\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
