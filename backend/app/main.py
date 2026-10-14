@@ -864,7 +864,7 @@ def export_combined_book(payload):
     ws.cell(5,qty_col,'QTY.')
     ws.merge_cells(start_row=4, start_column=feeder_start_col, end_row=4, end_column=feeder_start_col+n-1)
     ws.cell(4,feeder_start_col,'FEEDER TYPICAL')
-        for idx, feeder in enumerate(feeders):
+    for idx, feeder in enumerate(feeders):
         col=feeder_start_col+idx
         ws.cell(5,col,feeder.get('name',''))
         ws.cell(6,col,feeder.get('quantity') or feeder.get('qty') or 1)
