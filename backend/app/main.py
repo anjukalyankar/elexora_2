@@ -730,11 +730,19 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
     rows = list(merged.values())
     for row in rows:
         quantities = row.get('feeder_quantities') or []
-        row['total'] = sum(
-            (int(quantities[i] or 0) if i < len(quantities) else 0)
-            * int(feeders[i].get('quantity') or 1)
-            for i in range(len(feeders))
-        )
+        actual_quantities = []
+        for i, feeder in enumerate(feeders):
+            try:
+                per_panel = int(quantities[i] or 0) if i < len(quantities) else 0
+            except (TypeError, ValueError):
+                per_panel = 0
+            try:
+                panel_count = int(feeder.get('quantity') or 1)
+            except (TypeError, ValueError):
+                panel_count = 1
+            actual_quantities.append(per_panel * max(1, panel_count))
+        row['feeder_quantities'] = actual_quantities
+        row['total'] = sum(actual_quantities)
     def equipment_order(row):
         code = str(row.get('master_code', '')).strip().upper()
         spec = str(row.get('specification', '')).upper()
@@ -882,31 +890,28 @@ def export_combined_book(payload):
             ws.cell(i,c).border=border
             ws.cell(i,c).font=Font(name='Courier New',size=7)
         ws.row_dimensions[i].height=15
-    footer_row=72
-    left=[('Item No.','100'),('Client :',header_data.get('client','')),('Sales Ref No.:',header_data.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]
-    mid=[('Description :',payload.get('description','')),('W.O. No.:',header_data.get('wo','')),('Drg. No.:',header_data.get('drawing',''))]
-    right=[('PRE.BY :',header_data.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',header_data.get('esd','')),('','1 of 1')]
-    for i,(label,value) in enumerate(left):
-        ws.cell(footer_row+i,1,label); ws.cell(footer_row+i,2,value)
-    for i,(label,value) in enumerate(mid):
-        ws.cell(footer_row+i,4,label); ws.cell(footer_row+i,5,value)
-    for i,(label,value) in enumerate(right):
-        ws.cell(footer_row+i, max(1,last_col-1),label); ws.cell(footer_row+i,last_col,value)
-    for row_idx in range(footer_row,footer_row+4):
-        for col in range(1,last_col+1):
-            ws.cell(row_idx,col).font=Font(name='Arial',size=7)
-            ws.cell(row_idx,col).alignment=Alignment(vertical='center',wrap_text=True)
+    # Keep worksheet view focused on the equipment list. Document metadata is
+    # printed in the page header/footer when the user presses Ctrl+P.
+    ws.oddHeader.center.text = "&B Equipment List &B"
+    ws.oddHeader.right.text = f"Doc.No.: {payload.get('document_no','SI EA/CS/FR/EG/015')}\\nRev.No.: {payload.get('revision','1.0')}  Eff.Dt: {payload.get('effective_date','17/07/2026')}"
+    ws.oddHeader.right.size = 7
+    ws.oddFooter.left.text = f"Client: {header_data.get('client','')}  |  Sales Ref: {header_data.get('sales_ref','')}\\nDescription: {payload.get('description','')}  |  WO: {header_data.get('wo','')}  |  Drawing: {header_data.get('drawing','')}"
+    ws.oddFooter.center.text = f"Prepared by: {header_data.get('prep_by','')}  |  Qty: {payload.get('qty','')}  |  ESD: {header_data.get('esd','')}"
+    ws.oddFooter.right.text = "Page &P of &N"
+    ws.oddFooter.left.size = 7
+    ws.oddFooter.center.size = 7
+    ws.oddFooter.right.size = 7
     ws.print_area=f'A1:{__import__("openpyxl").utils.get_column_letter(last_col)}76'
     return wb
 
 def export_combined_pdf(payload):
     out=io.BytesIO()
-    doc=SimpleDocTemplate(out,pagesize=__import__('reportlab.lib.pagesizes',fromlist=['landscape']).landscape(A4),rightMargin=6*mm,leftMargin=6*mm,topMargin=10*mm,bottomMargin=25*mm)
+    doc=SimpleDocTemplate(out,pagesize=__import__('reportlab.lib.pagesizes',fromlist=['landscape']).landscape(A4),rightMargin=8*mm,leftMargin=8*mm,topMargin=6*mm,bottomMargin=20*mm)
     styles=getSampleStyleSheet()
-    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=9,leading=11,alignment=TA_CENTER)
-    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=6,leading=7,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
+    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=7,leading=8,alignment=TA_CENTER)
+    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.8,leading=5.6,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
     center=ParagraphStyle('combinedcenter',parent=cell,alignment=TA_CENTER)
-    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,leading=7)
+    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,fontSize=4.6,leading=5.2)
     feeders=payload.get('feeders') or []
     rows=payload.get('rows') or []
     n=max(1,len(feeders))
@@ -917,8 +922,8 @@ def export_combined_pdf(payload):
         spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
         qs=row.get('feeder_quantities') or []
         data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] else ''),center) for i in range(n)]+[Paragraph(str(row.get('total','') or ''),center),'',''])
-    available=285*mm
-    fixed=[12*mm,88*mm,24*mm,16*mm,16*mm,16*mm]
+    available=281*mm
+    fixed=[10*mm,90*mm,20*mm,13*mm,13*mm,13*mm]
     # Allocate a little more space to long feeder labels, while keeping the
     # complete table inside landscape A4. Paragraph cells wrap and expand rows.
     remaining=max(8*mm, available-sum(fixed))
@@ -927,10 +932,10 @@ def export_combined_pdf(payload):
     weight_sum=sum(weights) or n
     feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
     widths=[fixed[0],fixed[1],fixed[2]]+feeder_widths+[fixed[3],fixed[4],fixed[5]]
-    tbl=Table(data,colWidths=widths,rowHeights=[26,20,28]+[None]*(len(data)-3),repeatRows=3)
+    tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,0),(2+n,0)),('SPAN',(3+n,0),(3+n,2)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
-    tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
+    tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
     story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
     h=payload.get('header',{})
     def footer(canvas, doc_obj):
