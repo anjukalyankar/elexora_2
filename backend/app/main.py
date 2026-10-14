@@ -42,6 +42,17 @@ def init_auth_db():
             user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             expires_at BIGINT NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS bom_history (
+            id BIGSERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            customer_name TEXT NOT NULL DEFAULT '',
+            work_order_no TEXT NOT NULL DEFAULT '',
+            voltage TEXT NOT NULL DEFAULT '',
+            msld_files JSONB NOT NULL DEFAULT '[]'::jsonb,
+            dis_filename TEXT NOT NULL DEFAULT '',
+            row_count INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""")
         conn.commit()
 
 
@@ -84,6 +95,17 @@ def current_user(authorization: str = Header(default="")):
     if not row:
         raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
     return row["username"]
+
+
+def is_admin_username(username):
+    configured = os.getenv("ADMIN_USERNAME", "Anju_Kalyankar").strip().lower()
+    return bool(username) and username.strip().lower() == configured
+
+
+def require_admin(user: str = Depends(current_user)):
+    if not is_admin_username(user):
+        raise HTTPException(status_code=403, detail="Admin access only.")
+    return user
 
 
 app = FastAPI(title='ELEXORA 2 API', version='0.7.0')
@@ -819,28 +841,61 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
     }
 
 @app.post('/api/bom/check-customers')
-async def check_msld_customers(mslds: list[UploadFile] = File(...), user: str = Depends(current_user)):
-    """Read customer names from each MSLD before BOM generation."""
+async def check_msld_customers(
+    mslds: list[UploadFile] = File(...),
+    dis: UploadFile = File(...),
+    client: str = Form(''),
+    wo: str = Form(''),
+    voltage: str = Form(''),
+    user: str = Depends(current_user)
+):
+    """Check MSLD and common DIS header values before BOM generation."""
     results = []
     for upload in mslds:
         data = await upload.read()
         filename = upload.filename or 'MSLD.pdf'
         extracted = extract_header_from_page(data, filename)
+        source_text = pdf_text(data, filename)
         customer = clean_value(extracted.get('client', ''))
         if not customer:
-            source_text = pdf_text(data, filename)
             customer = first(r'Client\s*:?[ \t]*([^\n]+)', source_text) or first(r'Customer\s*Name\s*:?[ \t]*([^\n]+)', source_text)
-        results.append({'filename': filename, 'customer': clean_value(customer)})
-    known = [x['customer'] for x in results if x['customer']]
-    unique_customers = list(dict.fromkeys(re.sub(r'\s+', ' ', x).strip() for x in known))
-    normalized_customers = {x.casefold() for x in unique_customers}
+        work_order = clean_value(extracted.get('wo', '')) or first(r'W\.?O\.?\s*No\.?\s*:?[ \t]*([^\n]+)', source_text)
+        voltage_match = first(r'\b(6\.6|11|33)\s*k?V\b', source_text)
+        results.append({'filename': filename, 'customer': clean_value(customer), 'work_order': clean_value(work_order), 'voltage': clean_value(voltage_match)})
+    dis_bytes = await dis.read()
+    dis_name = dis.filename or 'DIS.pdf'
+    dis_header = extract_header_from_page(dis_bytes, dis_name)
+    dis_text = pdf_text(dis_bytes, dis_name)
+    dis_customer = clean_value(dis_header.get('client', '')) or first(r'Client\s*:?[ \t]*([^\n]+)', dis_text) or first(r'Customer\s*Name\s*:?[ \t]*([^\n]+)', dis_text)
+    dis_wo = clean_value(dis_header.get('wo', '')) or first(r'W\.?O\.?\s*No\.?\s*:?[ \t]*([^\n]+)', dis_text)
+    dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
+    def distinct(values):
+        return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
+    customers = distinct([x['customer'] for x in results])
+    work_orders = distinct([x['work_order'] for x in results])
+    voltages = distinct([x['voltage'] for x in results])
+    mismatches = []
+    if len({x.casefold() for x in customers}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different customer names.')
+    if len({x.casefold() for x in work_orders}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different work order numbers.')
+    if len({x.casefold() for x in voltages}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different voltage values.')
+    entered = {'customer': clean_value(client), 'work_order': clean_value(wo), 'voltage': clean_value(voltage)}
+    for label, values, dis_value, entered_value in [
+        ('Customer name', customers, dis_customer, entered['customer']),
+        ('Work order number', work_orders, dis_wo, entered['work_order']),
+        ('Voltage', voltages, dis_voltage, entered['voltage'])
+    ]:
+        all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
+        if len({x.casefold() for x in all_values}) > 1:
+            mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
     return {
-        'mslds': results,
-        'different_customers': len(normalized_customers) > 1,
-        'customers': unique_customers,
-        'unknown_customer_files': [x['filename'] for x in results if not x['customer']]
+        'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
+        'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
+        'mismatches': list(dict.fromkeys(mismatches)),
+        'dis': {'filename': dis_name, 'customer': dis_customer, 'work_order': dis_wo, 'voltage': clean_value(dis_voltage)}
     }
-
 
 @app.post('/api/bom/preview-multiple')
 async def preview_multiple(
@@ -851,11 +906,37 @@ async def preview_multiple(
 ):
     if not mslds:
         raise HTTPException(status_code=400, detail='Upload at least one MSLD PDF.')
+    dis_name = dis.filename or 'DIS.pdf'
     dis_bytes = await dis.read()
     items = []
+    filenames = []
     for upload in mslds:
-        items.append((await upload.read(), upload.filename or 'MSLD.pdf'))
-    return extract_multiple_from_files(items, dis_bytes, dis.filename or 'DIS.pdf', client, sales_ref, drawing, esd, wo, prep_by, voltage)
+        filename = upload.filename or 'MSLD.pdf'
+        items.append((await upload.read(), filename))
+        filenames.append(filename)
+    result = extract_multiple_from_files(items, dis_bytes, dis_name, client, sales_ref, drawing, esd, wo, prep_by, voltage)
+    import json
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO bom_history (username, customer_name, work_order_no, voltage, msld_files, dis_filename, row_count)
+               VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)""",
+            (user, str(client or result.get('header', {}).get('client', '')), str(wo or result.get('header', {}).get('wo', '')),
+             str(voltage or ''), json.dumps(filenames), dis_name, len(result.get('rows') or []))
+        )
+        conn.commit()
+    return result
+
+
+@app.get('/api/admin/bom-history')
+def admin_bom_history(user: str = Depends(require_admin)):
+    with db() as conn:
+        total = conn.execute("SELECT COUNT(*) AS total FROM bom_history").fetchone()['total']
+        rows = conn.execute(
+            """SELECT id, username, customer_name, work_order_no, voltage, msld_files,
+                      dis_filename, row_count, created_at
+               FROM bom_history ORDER BY created_at DESC LIMIT 500"""
+        ).fetchall()
+    return {'total_generated': total, 'history': rows}
 
 def export_combined_book(payload):
     wb = Workbook()
