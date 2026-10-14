@@ -818,6 +818,23 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         'feeder_details': feeders, 'same_input_file': False
     }
 
+@app.post('/api/bom/check-customers')
+async def check_mslD_customers(mslds: list[UploadFile] = File(...), user: str = Depends(current_user)):
+    """Read customer names from each MSLD before BOM generation."""
+    results = []
+    for upload in mslds:
+        data = await upload.read()
+        filename = upload.filename or 'MSLD.pdf'
+        extracted = extract_header_from_page(data, filename)
+        customer = clean_value(extracted.get('client', ''))
+        if not customer:
+            source_text = pdf_text(data, filename)
+            customer = first(r'Client\\s*:?[ \\t]*([^\\n]+)', source_text) or first(r'Customer\\s*Name\\s*:?[ \\t]*([^\\n]+)', source_text)
+        results.append({'filename': filename, 'customer': clean_value(customer)})
+    known = [x['customer'] for x in results if x['customer']]
+    return {'mslds': results, 'different_customers': len({re.sub(r'\\s+', ' ', x).strip().casefold() for x in known}) > 1, 'unknown_customer_files': [x['filename'] for x in results if not x['customer']]}
+
+
 @app.post('/api/bom/preview-multiple')
 async def preview_multiple(
     client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
