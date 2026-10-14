@@ -8,3 +8,54 @@
   .preview-scroll { padding: 0; background: #fff; overflow: visible; display: block; }
   .bom-document { width: 100%; min-height: 0; box-shadow: none; margin: 0; padding: 0; }
 }
+
+
+/* ELEXORA workspace refresh */
+body{background:#f4f7fb;color:#132238}
+header{background:linear-gradient(115deg,#0b1f36,#153d60);height:78px;box-shadow:0 4px 20px #10243e18}
+.brand{letter-spacing:2.5px}
+.tag{opacity:1;color:#d7e7f6;letter-spacing:.2px}
+main{max-width:1320px;padding:40px 24px}
+.hero{padding:30px 32px;border-radius:18px;background:linear-gradient(120deg,#102d4a,#1a5a79);color:white;box-shadow:0 12px 30px #153d6020;position:relative;overflow:hidden}
+.hero:after{content:"";position:absolute;width:220px;height:220px;border:1px solid #ffffff24;border-radius:50%;right:7%;top:-95px;box-shadow:0 0 0 24px #ffffff08,0 0 0 48px #ffffff05}
+.hero h1{font-size:clamp(28px,3vw,40px);letter-spacing:-.8px;position:relative;z-index:1}
+.hero p{color:#d7e7f6;max-width:720px;line-height:1.6;position:relative;z-index:1}
+.card{border:1px solid #e0e8f0;border-radius:18px;padding:28px;box-shadow:0 10px 34px #1636530b}
+.card h2{letter-spacing:-.3px;color:#142c45}
+.grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.grid label{font-size:12px;letter-spacing:.15px;color:#52657a}
+.grid input,.grid select,.loginbox input{border:1px solid #d4deea;border-radius:9px;padding:13px 14px;transition:border-color .15s,box-shadow .15s}
+.grid input:focus,.grid select:focus,.loginbox input:focus{outline:none;border-color:#3687b7;box-shadow:0 0 0 3px #3687b71b}
+.upload{border:1px dashed #8aa9c1;background:#f7fbff;border-radius:14px;transition:background .15s,border-color .15s}
+.upload:hover{background:#edf7ff;border-color:#2775a5}
+button{background:linear-gradient(120deg,#1769aa,#14578d);border-radius:9px;padding:12px 18px;box-shadow:0 3px 8px #1769aa1c;transition:transform .12s,filter .12s}
+button:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.signout,.secondary-button{background:white;color:#16476b;border:1px solid #c9d8e5;box-shadow:none}
+.admin-button{margin-left:auto;background:#f1c76a;color:#25364a;box-shadow:none}
+.signout{margin-left:0}
+header .admin-button + .signout{margin-left:0}
+.compact-grid{margin-top:2px}
+.preview-card{overflow:hidden}
+.bomhead{gap:16px}
+.modal-backdrop{position:fixed;inset:0;z-index:1000;background:#091a2ccc;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.warning-modal{width:min(700px,100%);max-height:calc(100vh - 40px);overflow-y:auto;background:#fff;border-radius:18px;padding:28px;box-shadow:0 24px 90px #06132255}
+.modal-icon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#fff1d6;color:#9a5b00;font-size:24px;font-weight:800}
+.warning-modal h2{margin:14px 0 8px}
+.warning-modal p{color:#62758a;line-height:1.55}
+.modal-warning{padding:11px 13px;border-radius:9px;background:#fff5e5;border:1px solid #f3d29a;color:#7d4b00;margin:9px 0;font-size:13px;line-height:1.5}
+.modal-detail{display:flex;flex-direction:column;gap:7px;padding:13px 0;border-bottom:1px solid #e8edf3;font-size:13px;overflow-wrap:anywhere}
+.modal-detail b{color:#213d57;margin-bottom:2px}
+.modal-detail span{color:#607287}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:22px}
+.history-count{display:flex;align-items:center;gap:14px;background:#eff7fc;border:1px solid #d7eaf6;padding:18px 20px;border-radius:12px;margin:8px 0 18px}
+.history-count strong{font-size:32px;color:#1769aa}
+.history-count span{font-size:14px;color:#52657a}
+.history-scroll{overflow:auto}
+.history-table{width:100%;border-collapse:collapse;min-width:850px;font-size:12px}
+.history-table th,.history-table td{padding:11px 12px;border-bottom:1px solid #e4ebf2;text-align:left;vertical-align:top}
+.history-table th{background:#f4f8fc;color:#415a70;font-size:11px;text-transform:uppercase;letter-spacing:.35px}
+.history-table td{overflow-wrap:anywhere;max-width:240px}
+.login{background:radial-gradient(ellipse at top left,#e1f1fb,#f4f7fb 58%)}
+.loginbox{border:1px solid #e0e8f0;border-radius:18px;box-shadow:0 20px 55px #153d6012}
+.loginbox h1{letter-spacing:-.5px}
+@media(max-width:800px){header{padding:0 18px;gap:10px;flex-wrap:wrap;height:auto;min-height:72px;padding-top:12px;padding-bottom:12px}.brand{font-size:21px}.tag{font-size:11px;flex:1}.admin-button{margin-left:auto}.signout{margin-left:0}main{padding:22px 12px}.hero{padding:24px 20px}.card{padding:20px}.grid{grid-template-columns:1fr}.modal-actions button{flex:1}.warning-modal{padding:22px}.loginbox{width:min(390px,calc(100% - 28px));padding:30px}}
