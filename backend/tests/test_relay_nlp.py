@@ -16,7 +16,7 @@ class TestRelayNLP(unittest.TestCase):
         fields = extract_7sj66_fields(MSLD_SAMPLE)
         self.assertEqual(fields["mlfb"]["value"], "7SJ6611-5EB90-1FE0-L0R")
         self.assertEqual(fields["ct_secondary"]["value"], "1A")
-        self.assertEqual(fields["aux_voltage"]["value"], "110 V DC")
+        self.assertEqual(fields["aux_voltage"]["value"], "110V DC")
         self.assertEqual(fields["io_hardware"]["value"], "4CT, 4VT, 16BI+7BO")
         self.assertEqual(fields["protection"]["value"], ["50", "51", "50N", "51N", "74TC", "27", "59"])
 
