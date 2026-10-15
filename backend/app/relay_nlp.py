@@ -22,7 +22,13 @@ PROTECTION_LABELS = {
     "25": ("25", "SYNCHROCHECK", "SYNCHRONISM CHECK"),
 }
 # Directly supported by the uploaded selection chart:
-CHART_CURRENT_INPUT_CODES = {\n    "1": "1 A",\n    "2": "1 A (sensitive earth-current input)",\n    "5": "5 A",\n    "6": "5 A (sensitive earth-current input)",\n}\nCHART_PROTOCOL_SUFFIXES = {
+CHART_CURRENT_INPUT_CODES = {
+    "1": "1 A",
+    "2": "1 A (sensitive earth-current input)",
+    "5": "5 A",
+    "6": "5 A (sensitive earth-current input)",
+}
+CHART_PROTOCOL_SUFFIXES = {
     "L0R": {"protocol": "IEC 61850", "interface": "100 Mbit Ethernet, electrical, RJ45 connector"},
     "L0S": {"protocol": "IEC 61850", "interface": "100 Mbit Ethernet, optical, LC connector"},
     "L2R": {"protocol": "DNP3 + IEC 61850", "interface": "100 Mbit Ethernet, electrical, RJ45 connector"},
