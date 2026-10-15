@@ -22,7 +22,7 @@ PROTECTION_LABELS = {
     "25": ("25", "SYNCHROCHECK", "SYNCHRONISM CHECK"),
 }
 # Directly supported by the uploaded selection chart:
-CHART_PROTOCOL_SUFFIXES = {
+CHART_CURRENT_INPUT_CODES = {\n    "1": "1 A",\n    "2": "1 A (sensitive earth-current input)",\n    "5": "5 A",\n    "6": "5 A (sensitive earth-current input)",\n}\nCHART_PROTOCOL_SUFFIXES = {
     "L0R": {"protocol": "IEC 61850", "interface": "100 Mbit Ethernet, electrical, RJ45 connector"},
     "L0S": {"protocol": "IEC 61850", "interface": "100 Mbit Ethernet, optical, LC connector"},
     "L2R": {"protocol": "DNP3 + IEC 61850", "interface": "100 Mbit Ethernet, electrical, RJ45 connector"},
@@ -150,6 +150,24 @@ def validate_7sj66(fields: dict) -> dict:
         errors.append(f"MLFB {mlfb} does not match the expected 7SJ6611 family.")
     else:
         checks.append({"item": "Relay family", "status": "matched", "detail": "7SJ6611 family identified from MSLD"})
+
+    # Chart mapping for the measuring-input option at the start of the MLFB suffix.
+    input_code_match = re.search(r"^7SJ6611-([A-Z0-9])", mlfb.upper()) if mlfb else None
+    requested_current = fields.get("ct_secondary", {}).get("value", "").replace(" ", "").upper()
+    if input_code_match:
+        code = input_code_match.group(1)
+        chart_current = CHART_CURRENT_INPUT_CODES.get(code)
+        if chart_current:
+            if requested_current.startswith("1A") and chart_current.startswith("5 A"):
+                errors.append("MLFB option code indicates a 5 A current-input variant, but the MSLD specifies CT secondary 1 A. Confirm the MLFB or CT requirement against the Siemens selection chart before issuing the BOM.")
+                checks.append({"item": "Current input", "status": "mismatch", "detail": f"MLFB option {code} maps to {chart_current}; MSLD requires {requested_current}"})
+            elif requested_current.startswith("5A") and chart_current.startswith("1 A"):
+                errors.append("MLFB option code indicates a 1 A current-input variant, but the MSLD specifies CT secondary 5 A. Confirm before issuing the BOM.")
+                checks.append({"item": "Current input", "status": "mismatch", "detail": f"MLFB option {code} maps to {chart_current}; MSLD requires {requested_current}"})
+            elif requested_current:
+                checks.append({"item": "Current input", "status": "matched", "detail": f"MLFB option {code} maps to {chart_current}; MSLD requires {requested_current}"})
+        else:
+            warnings.append("MLFB measuring-input option code is not mapped in the uploaded chart; current-input compatibility needs manual review.")
 
     suffix = ""
     if mlfb:
