@@ -17,6 +17,7 @@ import hashlib
 import hmac
 from fastapi import HTTPException, Depends, Header
 from pydantic import BaseModel
+from .relay_nlp import analyze_7sj66
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
@@ -622,6 +623,7 @@ def ct_spec(ct_text, dis_text):
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
+  relay_analysis = None
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=ct_spec(ct_row_text,dis_text)
@@ -635,6 +637,13 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    else:
     spec = r['description']+((' | '+r['details']) if r['details'] else '')
     spec_lines = [clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='7SJ6611':
+   relay_source = ' '.join([r.get('description',''), r.get('details',''), msld_text])
+   relay_analysis = analyze_7sj66(relay_source)
+   spec = relay_analysis['description']
+   spec_lines = spec.splitlines()
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
@@ -660,7 +669,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec_lines=[clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
-  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code']})
+  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
@@ -677,7 +686,14 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  msld_text=pdf_text(msld_bytes,msld_name); dis_text=pdf_text(dis_bytes,dis_name); same=bool(msld_text.strip()) and re.sub(r'\s+','',msld_text)==re.sub(r'\s+','',dis_text); feeder_info,records,warnings=extract_fixed_table(msld_bytes,msld_name)
  if same:warnings.append('The same PDF was supplied in both MSLD and DIS slots. It was processed once; DIS was used as the validation copy.')
  elif dis_text.strip():warnings.append('DIS supplied: used as the fixed specification source; MSLD remains the primary project-data source.')
- rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text); h=header(msld_text,dis_text,client,sales,drawing,esd,wo,prep,voltage); ph=extract_header_from_page(msld_bytes,msld_name)
+ rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text)
+ for row in rows:
+  validation=row.get('relay_validation')
+  if validation:
+   relay_label='7SJ66 relay '+str(row.get('designation',''))
+   warnings.extend([relay_label+': '+message for message in validation.get('errors',[])])
+   warnings.extend([relay_label+': '+message for message in validation.get('warnings',[])])
+ h=header(msld_text,dis_text,client,sales,drawing,esd,wo,prep,voltage); ph=extract_header_from_page(msld_bytes,msld_name)
  for key in ('client','sales_ref','drawing','wo'):
   if ph.get(key):h[key]=ph[key]
  if ph.get('esd'):h['esd']=ph['esd']
@@ -717,6 +733,12 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         feeder_qty_num = int(qty_match.group()) if qty_match else 1
         feeders.append({'name': str(feeder_name), 'qty': str(feeder_qty_text), 'quantity': feeder_qty_num, 'source_file': msld_name})
         built, _, _ = build_rows(feeder_info, records, msld_text, dis_text)
+        for row in built:
+            validation = row.get('relay_validation')
+            if validation:
+                relay_label = str(msld_name) + ': 7SJ66 relay ' + str(row.get('designation', ''))
+                warnings.extend([relay_label + ': ' + message for message in validation.get('errors', [])])
+                warnings.extend([relay_label + ': ' + message for message in validation.get('warnings', [])])
         for row in built:
             row['_feeder_index'] = idx
             all_rows.append(row)
