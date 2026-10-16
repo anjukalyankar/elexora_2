@@ -50,7 +50,10 @@ def _first(patterns, text):
     for pattern in patterns:
         m = re.search(pattern, text, re.I)
         if m:
-            return re.sub(r"\s+", " ", m.group(1)).strip(" .,:;")
+            # Some callers use a pattern without a capturing group. In that case,
+            # return the full match rather than crashing with IndexError.
+            value = m.group(1) if m.lastindex else m.group(0)
+            return re.sub(r"\s+", " ", value).strip(" .,:;")
     return ""
 
 
