@@ -110,7 +110,7 @@ def require_admin(user: str = Depends(current_user)):
 
 
 app = FastAPI(title='ELEXORA 2 API', version='0.7.0')
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
+app.add_middleware(CORSMiddleware, allow_origins=['https://elexora-2-nine.vercel.app', 'http://localhost:5173'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 REFERENCE_FEEDER_COLUMN = 'FEEDER TYPICAL'
 MASTER = {'CT':'CURRENT TRANSFORMER','PT':'POTENTIAL TRANSFORMER (DRAWOUT TYPE)','7SJ6611':'NUMERICAL PROTECTION RELAY','EM6400NG':'DIGITAL MF METER','AMMETER':'DIGITAL AMMETER WITH BUILT IN SEL. S/W','VOLTMETER':'DIGITAL VOLTMETER WITH BUILT IN SEL. S/W','MCB':'MINIATURE CIRCUIT BREAKER'}
 LED_MASTER_CACHE = None
