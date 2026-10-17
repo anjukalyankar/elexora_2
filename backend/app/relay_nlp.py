@@ -34,7 +34,7 @@ CHART_PROTOCOL_SUFFIXES = {
     "L2R": {"protocol": "DNP3 + IEC 61850", "interface": "100 Mbit Ethernet, electrical, RJ45 connector"},
     "L2S": {"protocol": "DNP3 + IEC 61850", "interface": "100 Mbit Ethernet, optical, LC connector"},
 }
-MODEL_RE = re.compile(r"\b(7SJ66\s*11\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}\s*[- ]\s*[A-Z0-9]{3})\b", re.I)
+MODEL_RE = re.compile(r"\b(7SJ66\s*11\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b", re.I)
 
 
 def normalize_source(text: str) -> str:
@@ -62,8 +62,8 @@ def extract_7sj66_fields(source_text: str) -> dict:
     text = normalize_source(source_text)
     fields = {}
     model = _first([
-        r"\b(7SJ6611\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}\s*[- ]\s*[A-Z0-9]{3})\b",
-        r"\b(7SJ6611\s*[- ]\s*[A-Z0-9+]{5,})\b",
+        r"\b(7SJ6611\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b",
+        r"\b(7SJ6611\s*[- ]\s*[A-Z0-9+\-]{5,})\b",
     ], text)
     if model:
         model = re.sub(r"\s+", "", model).replace("7SJ6611", "7SJ6611")
@@ -149,57 +149,223 @@ def render_7sj66_description(fields: dict) -> str:
     return "\n".join(lines)
 
 
+def _parse_7sj66_mlfb(raw_mlfb: str) -> dict:
+    """Split a 7SJ66 MLFB into chart positions 1-16 and an optional comms suffix."""
+    value = re.sub(r"\s+", "", (raw_mlfb or "").upper())
+    value = value.replace("＋", "+")
+    match = re.fullmatch(
+        r"(7SJ66)([A-Z0-9]{2})-([A-Z0-9]{5})-([A-Z0-9]{4})(?:[+-](L0D|L0G|L0R|L0S|L2R|L2S))?",
+        value,
+    )
+    if not match:
+        return {"valid_format": False, "raw": value}
+    model, pos67, pos812, pos1316, suffix = match.groups()
+    positions = model + pos67 + pos812 + pos1316
+    return {
+        "valid_format": len(positions) == 16,
+        "raw": value,
+        "positions": positions,
+        "position_6": positions[5],
+        "position_7": positions[6],
+        "position_8": positions[7],
+        "position_9": positions[8],
+        "position_10": positions[9],
+        "position_11": positions[10],
+        "position_12": positions[11],
+        "position_13": positions[12],
+        "position_14": positions[13],
+        "position_15": positions[14],
+        "position_16": positions[15],
+        "protection_code_14_15": positions[13:15],
+        "suffix": suffix or "",
+        "suffix_sign": value[-len(suffix)-1] if suffix else "",
+    }
+
+
+# Protection version codes are combined position 14-15 values confirmed in the
+# supplied chart. Unknown pairs are not rejected solely because this map is partial.
+PROTECTION_VERSION_OPTIONS = {
+    "FA": "Basic version",
+    "FE": "Basic version with V, P, f",
+    "FC": "Basic directional version",
+    "FG": "Basic directional version with V, P, f",
+    "FB": "Basic directional sensitive earth-fault version",
+    "HF": "Motor directional sensitive earth-fault version with V, P, f",
+    "HH": "Motor directional sensitive earth-fault version with motor RMZ and V, P, f",
+    "PE": "Basic IEF version with V, P, f",
+    "PG": "Directional IEF version with V, P, f",
+    "PC": "Directional IEF version",
+    "PD": "Directional sensitive earth-fault and directional IEF version",
+    "FF": "Directional sensitive earth-fault version with V, P, f",
+    "FD": "Directional sensitive earth-fault version",
+    "RH": "Motor directional sensitive earth-fault version",
+    "HG": "Basic motor directional version with V, P, f",
+    "HA": "Basic motor version",
+}
+
+
 def validate_7sj66(fields: dict) -> dict:
-    """Conservative verification: verify the model and chart-mapped comms suffix only."""
+    """Validate mapped 7SJ66 MLFB positions and chart notes conservatively."""
     errors, warnings, checks = [], [], []
     mlfb = fields.get("mlfb", {}).get("value", "")
     if not mlfb:
         errors.append("MLFB was not found in the MSLD; relay cannot be marked verified.")
-    elif not mlfb.upper().startswith("7SJ6611-"):
-        errors.append(f"MLFB {mlfb} does not match the expected 7SJ6611 family.")
+        return {"status": "mismatch", "errors": errors, "warnings": warnings, "checks": checks}
+
+    parsed = _parse_7sj66_mlfb(mlfb)
+    if not parsed.get("valid_format"):
+        errors.append(
+            f"MLFB {mlfb} does not match the supported 7SJ66 structure "
+            "(16 numbered positions and an optional supported communication suffix)."
+        )
+        return {"status": "mismatch", "errors": errors, "warnings": warnings, "checks": checks}
+
+    checks.append({
+        "item": "Relay family / MLFB structure",
+        "status": "matched",
+        "detail": f"{parsed['positions']} (positions 1-16)",
+    })
+
+    # Chart Note: positions 14-15 must be assessed as one protection-version code.
+    protection_code = parsed["protection_code_14_15"]
+    if protection_code in PROTECTION_VERSION_OPTIONS:
+        checks.append({
+            "item": "Protection version (positions 14-15)",
+            "status": "matched",
+            "detail": f"{protection_code} = {PROTECTION_VERSION_OPTIONS[protection_code]}",
+        })
     else:
-        checks.append({"item": "Relay family", "status": "matched", "detail": "7SJ6611 family identified from MSLD"})
+        warnings.append(
+            f"Protection-version code {protection_code} at positions 14-15 is not "
+            "mapped in the currently encoded chart options; manual chart review is required."
+        )
 
-    # Chart mapping for the measuring-input option at the start of the MLFB suffix.
-    input_code_match = re.search(r"^7SJ6611-([A-Z0-9])", mlfb.upper()) if mlfb else None
-    requested_current = fields.get("ct_secondary", {}).get("value", "").replace(" ", "").upper()
-    if input_code_match:
-        code = input_code_match.group(1)
-        chart_current = CHART_CURRENT_INPUT_CODES.get(code)
-        if chart_current:
-            if requested_current.startswith("1A") and chart_current.startswith("5 A"):
-                errors.append("MLFB option code indicates a 5 A current-input variant, but the MSLD specifies CT secondary 1 A. Confirm the MLFB or CT requirement against the Siemens selection chart before issuing the BOM.")
-                checks.append({"item": "Current input", "status": "mismatch", "detail": f"MLFB option {code} maps to {chart_current}; MSLD requires {requested_current}"})
-            elif requested_current.startswith("5A") and chart_current.startswith("1 A"):
-                errors.append("MLFB option code indicates a 1 A current-input variant, but the MSLD specifies CT secondary 5 A. Confirm before issuing the BOM.")
-                checks.append({"item": "Current input", "status": "mismatch", "detail": f"MLFB option {code} maps to {chart_current}; MSLD requires {requested_current}"})
-            elif requested_current:
-                checks.append({"item": "Current input", "status": "matched", "detail": f"MLFB option {code} maps to {chart_current}; MSLD requires {requested_current}"})
+    # Chart Note: position 7 controls the permitted letter at position 15.
+    allowed_position_15 = {
+        "1": {"A", "C", "E", "G"},
+        "5": {"A", "C", "E", "G"},
+        "2": {"B", "D", "F", "H"},
+        "6": {"B", "D", "F", "H"},
+    }
+    position_7 = parsed["position_7"]
+    position_15 = parsed["position_15"]
+    if position_7 not in allowed_position_15:
+        warnings.append(
+            f"Position 7 option {position_7} is not mapped for the chart note "
+            "that constrains position 15; compatibility is not verified."
+        )
+    elif position_15 not in allowed_position_15[position_7]:
+        errors.append(
+            f"Chart compatibility error: position 7 = {position_7} does not permit "
+            f"position 15 = {position_15}."
+        )
+        checks.append({
+            "item": "Position 7 / position 15 compatibility",
+            "status": "mismatch",
+            "detail": f"Position 7 = {position_7}; position 15 = {position_15}",
+        })
+    else:
+        checks.append({
+            "item": "Position 7 / position 15 compatibility",
+            "status": "matched",
+            "detail": f"Position 7 = {position_7}; position 15 = {position_15}",
+        })
+
+    # Position 7 is the second character of the fixed '7SJ66' + two-character
+    # block, not the first character after the first hyphen.
+    current_codes = {"1": "1A", "2": "1A", "5": "5A", "6": "5A"}
+    chart_current = current_codes.get(position_7)
+    requested_current = re.sub(
+        r"\s+", "", fields.get("ct_secondary", {}).get("value", "")
+    ).upper()
+    if chart_current and requested_current:
+        if requested_current not in {"1A", "5A"}:
+            warnings.append(
+                f"MSLD CT secondary value {requested_current} is not supported by "
+                "the mapped 7SJ66 current-input options."
+            )
+        elif chart_current != requested_current:
+            errors.append(
+                f"MLFB position 7 indicates {chart_current} current input, but the "
+                f"MSLD specifies CT secondary {requested_current}; confirm before issuing the BOM."
+            )
+            checks.append({
+                "item": "Current input",
+                "status": "mismatch",
+                "detail": f"Position 7 = {position_7} maps to {chart_current}; MSLD requires {requested_current}",
+            })
         else:
-            warnings.append("MLFB measuring-input option code is not mapped in the uploaded chart; current-input compatibility needs manual review.")
+            checks.append({
+                "item": "Current input",
+                "status": "matched",
+                "detail": f"Position 7 = {position_7} maps to {chart_current}; MSLD requires {requested_current}",
+            })
+    elif not chart_current:
+        warnings.append(
+            f"Position 7 option {position_7} is not mapped for current-input verification."
+        )
 
-    suffix = ""
-    if mlfb:
-        match = re.search(r"-([A-Z0-9]{3})$", mlfb.upper())
-        suffix = match.group(1) if match else ""
+    suffix = parsed["suffix"]
     communication = fields.get("communication", {}).get("value", [])
     if suffix in CHART_PROTOCOL_SUFFIXES:
         option = CHART_PROTOCOL_SUFFIXES[suffix]
-        checks.append({"item": "Communication option", "status": "matched",
-                       "detail": f"{suffix} = {option['protocol']}, {option['interface']} (selection chart)"})
+        checks.append({
+            "item": "Communication option",
+            "status": "matched",
+            "detail": f"{suffix} = {option['protocol']}, {option['interface']} (selection chart)",
+        })
         required = set(communication)
         if "IEC 61850" in required and option["protocol"] not in ("IEC 61850", "DNP3 + IEC 61850"):
             errors.append("MLFB communication suffix does not provide the IEC 61850 protocol requested in the MSLD.")
         if "RJ45" in required and "RJ45" not in option["interface"]:
             errors.append("MLFB communication suffix does not provide the RJ45 connector requested in the MSLD.")
-    elif mlfb:
-        warnings.append("MLFB communication suffix could not be mapped to a supported option in the uploaded chart; manual chart review is required.")
+    elif suffix in {"L0D", "L0G"}:
+        checks.append({
+            "item": "Communication option",
+            "status": "matched",
+            "detail": f"{suffix} = {('Modbus RS485' if suffix == 'L0D' else 'DNP3 RS485')} (selection chart)",
+        })
+    else:
+        warnings.append(
+            "MLFB communication suffix is absent or not mapped to a supported option; "
+            "manual chart review is required."
+        )
 
-    # Do not claim the whole MLFB is verified just because its protocol suffix matches.
-    warnings.append("Partial verification only: the chart's remaining MLFB option positions need a complete position-by-position code map before the full order number can be certified.")
-    missing = [key for key in ("ct_secondary", "aux_voltage", "hardware_functions", "io_hardware", "communication", "protection") if not fields.get(key)]
+    # Chart notes for interdependent port options.
+    if parsed["position_11"] == "2" and parsed["position_12"] not in {"0", "2"}:
+        errors.append(
+            "Chart compatibility error: position 11 = 2 (RS485 system-port option) "
+            "requires position 12 = 0 or 2."
+        )
+    if suffix in {"L0D", "L0G"} and parsed["position_11"] != "9":
+        errors.append(
+            f"Chart compatibility error: communication suffix {suffix} requires position 11 = 9."
+        )
+    if suffix in {"L0R", "L0S", "L2R", "L2S"} and parsed["position_11"] != "9":
+        errors.append(
+            f"Chart compatibility error: Ethernet communication suffix {suffix} requires position 11 = 9."
+        )
+    if suffix in {"L0R", "L0S", "L2R", "L2S"} and parsed["position_12"] not in {"0", "6"}:
+        errors.append(
+            f"Chart compatibility error: Ethernet communication suffix {suffix} requires position 12 = 0 or 6."
+        )
+
+    # Do not claim full verification while chart positions remain unmapped.
+    warnings.append(
+        "Partial verification only: not every MLFB position and every cross-position chart note "
+        "is encoded yet; review the full selection chart before releasing the BOM."
+    )
+    missing = [
+        key for key in (
+            "ct_secondary", "aux_voltage", "hardware_functions", "io_hardware",
+            "communication", "protection"
+        ) if not fields.get(key)
+    ]
     if missing:
-        warnings.append("MSLD technical fields not extracted with sufficient confidence: " + ", ".join(missing) + ".")
+        warnings.append(
+            "MSLD technical fields not extracted with sufficient confidence: "
+            + ", ".join(missing) + "."
+        )
     status = "mismatch" if errors else ("partial" if warnings else "verified")
     return {"status": status, "errors": errors, "warnings": warnings, "checks": checks}
 
