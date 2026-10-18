@@ -160,7 +160,7 @@ def render_7sj66_description(fields: dict) -> str:
         f"RATED AUX VOLTAGE  : {aux}" if aux else "RATED AUX VOLTAGE  : [NOT FOUND]",
         f"HARDWARE           : {hardware}," if hardware else "HARDWARE           : [NOT FOUND]",
         f": {io}" if io else ": [NOT FOUND]",
-        "SUITABLE FOR FLUSH MOUNTING" if value("mounting") else "SUITABLE FOR [MOUNTING NOT CONFIRMED]",
+        f"SUITABLE FOR {value('mounting')}" if value("mounting") else "SUITABLE FOR [MOUNTING NOT CONFIRMED]",
         "COMMUNICATION LANGUAGE : ENGLISH",  # fixed user-provided template text, not MSLD extraction
         "WITH IEC 61850 PROTOCOL, RJ45 CONNECTOR" if "IEC 61850" in comm and "RJ45" in comm else "WITH [COMMUNICATION NOT FULLY CONFIRMED]",
         "PROT : " + ",".join(protection) if protection else "PROT : [NOT FOUND]",
