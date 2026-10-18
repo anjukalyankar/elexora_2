@@ -645,13 +645,21 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    # that is not actually specified for this designation.
    relay_source = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    relay_analysis = analyze_7sj66(relay_source)
-   # A designation such as K51 alone is not proof that a 7SJ66 was specified.
-   # If this row contains no 7SJ66 MLFB, omit the relay row entirely: do not
-   # fabricate a template description or raise a missing-relay warning.
-   if not relay_analysis.get('fields', {}).get('mlfb', {}).get('value'):
-    continue
-   spec = relay_analysis['description']
-   spec_lines = spec.splitlines()
+   # Never drop a detected relay row just because its MLFB is missing or
+   # its chart-coded options conflict with the MSLD details. Preserve the
+   # source text in the BOM so engineering details are not lost, and attach
+   # validation feedback for the UI warning list.
+   source_relay_text = clean_value(' | '.join(
+    part for part in [r.get('description',''), r.get('details','')] if part
+   ))
+   relay_validation = relay_analysis.get('validation') or {}
+   has_mlfb = bool(relay_analysis.get('fields', {}).get('mlfb', {}).get('value'))
+   if not has_mlfb or relay_validation.get('status') in {'mismatch', 'partial'}:
+    spec = source_relay_text or relay_analysis['description']
+    spec_lines = [spec] if spec else []
+   else:
+    spec = relay_analysis['description']
+    spec_lines = spec.splitlines()
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
