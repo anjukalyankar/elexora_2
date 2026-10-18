@@ -20,11 +20,26 @@ class TestRelayNLP(unittest.TestCase):
         self.assertEqual(fields["io_hardware"]["value"], "4CT, 4VT, 16BI+7BO")
         self.assertEqual(fields["protection"]["value"], ["50", "51", "50N", "51N", "74TC", "27", "59"])
 
-    def test_flags_current_input_mismatch(self):
+    def test_chart_consistent_mlfb_is_verified_without_generic_warning(self):
         result = analyze_7sj66(MSLD_SAMPLE)
-        self.assertEqual(result["validation"]["status"], "mismatch")
-        self.assertTrue(any("5 A current-input" in message for message in result["validation"]["errors"]))
+        self.assertEqual(result["validation"]["status"], "verified")
+        self.assertEqual(result["validation"]["errors"], [])
+        self.assertEqual(result["validation"]["warnings"], [])
+        self.assertTrue(any(check["item"] == "Current input" and check["status"] == "matched"
+                            for check in result["validation"]["checks"]))
+        self.assertTrue(any(check["item"] == "Position 9" and check["status"] == "matched"
+                            for check in result["validation"]["checks"]))
         self.assertIn("MLFB NO.: 7SJ6611-5EB90-1FE0-L0R", result["description"])
+        self.assertIn("SUITABLE FOR FLUSH MOUNTING", result["description"])
+        self.assertIn("81U/O", result["description"])
+        self.assertIn("32/55/81R", result["description"])
+
+    def test_flags_actual_current_input_mismatch(self):
+        source = MSLD_SAMPLE.replace("CT SEC: 1A", "CT SEC: 5A")
+        result = analyze_7sj66(source)
+        self.assertEqual(result["validation"]["status"], "mismatch")
+        self.assertTrue(any("position 7 indicates 1A" in message
+                            for message in result["validation"]["errors"]))
 
     def test_missing_mlfb_does_not_claim_verified(self):
         result = analyze_7sj66("CT SEC: 1A, AUX SUPPLY: 110V DC")
