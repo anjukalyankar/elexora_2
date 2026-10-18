@@ -11,6 +11,14 @@ HARDWARE: 4CT, 4VT, 16BI+7BO [50,51,50N,51N,27,59,74TC]
 """
 
 
+
+K55_SAMPLE = """
+NUM. PROT. RELAY
+WITH RJ45 IEC61850
+7SJ6612-5EB90-1FE0-L0R K55 CT SEC: 1A, AUX. SUPPLY: 110V DC, 3 O/C + 1 E/F
+HARDWARE: 4CT, 4VT, 16BI+7BO [50,51,50N,51N,27,59,74TC]
+"""
+
 class TestRelayNLP(unittest.TestCase):
     def test_extracts_7sj66_fields(self):
         fields = extract_7sj66_fields(MSLD_SAMPLE)
@@ -19,6 +27,12 @@ class TestRelayNLP(unittest.TestCase):
         self.assertEqual(fields["aux_voltage"]["value"], "110V DC")
         self.assertEqual(fields["io_hardware"]["value"], "4CT, 4VT, 16BI+7BO")
         self.assertEqual(fields["protection"]["value"], ["50", "51", "50N", "51N", "74TC", "27", "59"])
+
+    def test_extracts_7sj6612_mlfb_for_k55(self):
+        fields = extract_7sj66_fields(K55_SAMPLE)
+        self.assertEqual(fields["mlfb"]["value"], "7SJ6612-5EB90-1FE0-L0R")
+        result = analyze_7sj66(K55_SAMPLE)
+        self.assertNotIn("MLFB was not found", result["validation"]["errors"])
 
     def test_chart_consistent_mlfb_is_verified_without_generic_warning(self):
         result = analyze_7sj66(MSLD_SAMPLE)
