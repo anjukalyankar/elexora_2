@@ -59,7 +59,7 @@ MODEL_RE = re.compile(r"\b(7SJ66\s*11\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(
 
 def normalize_source(text: str) -> str:
     text = (text or "").upper().replace("＋", "+").replace("–", "-").replace("—", "-")
-    text = re.sub(r"\b7SJ66\s*11\b", "7SJ6611", text)
+    text = re.sub(r"\b7SJ66\s*11\b", "7SJ66\\d{2}", text)
     text = re.sub(r"\bI\s*EC\s*61850\b", "IEC 61850", text)
     text = re.sub(r"\bR\s*J\s*45\b", "RJ45", text)
     text = re.sub(r"\s+", " ", text)
@@ -82,11 +82,11 @@ def extract_7sj66_fields(source_text: str) -> dict:
     text = normalize_source(source_text)
     fields = {}
     model = _first([
-        r"\b(7SJ6611\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b",
-        r"\b(7SJ6611\s*[- ]\s*[A-Z0-9+\-]{5,})\b",
+        r"\b(7SJ66\\d{2}\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b",
+        r"\b(7SJ66\\d{2}\s*[- ]\s*[A-Z0-9+\-]{5,})\b",
     ], text)
     if model:
-        model = re.sub(r"\s+", "", model).replace("7SJ6611", "7SJ6611")
+        model = re.sub(r"\s+", "", model).replace("7SJ66\\d{2}", "7SJ66\\d{2}")
         fields["mlfb"] = {"value": model, "confidence": 0.99, "evidence": model}
 
     current = _first([
