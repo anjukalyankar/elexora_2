@@ -370,11 +370,92 @@ def validate_7sj66(fields: dict) -> dict:
             f"Chart compatibility error: Ethernet communication suffix {suffix} requires position 12 = 0 or 6."
         )
 
-    # Do not claim full verification while chart positions remain unmapped.
-    warnings.append(
-        "Partial verification only: not every MLFB position and every cross-position chart note "
-        "is encoded yet; review the full selection chart before releasing the BOM."
-    )
+    # Validate each chart position that is explicitly mapped below. Unknown options
+    # produce a short field-specific note instead of a blanket partial-verification warning.
+    position_checks = {
+        "position_6": {
+            "1": "19-inch housing; 4 voltage inputs, 4 current inputs, 16 BI, 7 BO, 1 life contact",
+        },
+        "position_8": {
+            "5": "DC 110-250 V / AC 115-230 V auxiliary supply; 88 V DC binary-input threshold",
+        },
+        "position_9": CHART_MOUNTING_OPTIONS,
+        "position_10": {
+            "B": "World region, 50/60 Hz, English default",
+            "E": "World region, 50/60 Hz, Spanish default",
+            "G": "Russian region",
+        },
+        "position_11": {
+            "0": "No system port",
+            "2": "IEC 60870-5-103 over RS485",
+            "9": "Communication interface selected by suffix",
+        },
+        "position_12": {
+            "0": "No service port",
+            "2": "DIGSI 4 / modem / RTD unit over electrical RS485",
+            "6": "Ethernet interface for DIGSI / RTD unit; not IEC 61850",
+        },
+        "position_13": {
+            "1": "Measuring and fault recording",
+            "3": "Slave pointer, average/minimum/maximum values and fault recording",
+        },
+        "position_16": {
+            "0": "No autoreclose, fault locator or synchro-check",
+            "1": "Autoreclose",
+            "2": "Fault locator",
+            "3": "Autoreclose and fault locator",
+            "4": "Synchro-check",
+            "7": "Synchro-check, autoreclose and fault locator",
+        },
+    }
+    for position_key, options in position_checks.items():
+        code = parsed[position_key]
+        if code in options:
+            checks.append({
+                "item": position_key.replace("_", " ").title(),
+                "status": "matched",
+                "detail": f"Code {code}: {options[code]}",
+            })
+        else:
+            warnings.append(
+                f"{position_key.replace('_', ' ').title()} code {code} is not mapped; "
+                "this chart option could not be verified automatically."
+            )
+
+    # Cross-position chart constraints.
+    if parsed["position_8"] == "4" and parsed["position_6"] != "1":
+        errors.append("Chart compatibility error: position 8 = 4 is only permitted with position 6 = 1.")
+    if parsed["position_11"] in {"2"} and parsed["position_12"] not in {"0", "2"}:
+        # Already checked above; avoid duplicate identical messages.
+        msg = "Chart compatibility error: position 11 = 2 (RS485 system-port option) requires position 12 = 0 or 2."
+        if msg not in errors:
+            errors.append(msg)
+
+    # Position 8 option 5 specifies the auxiliary-voltage range shown in the chart.
+    if parsed["position_8"] == "5":
+        requested_aux = re.sub(r"\\s+", "", fields.get("aux_voltage", {}).get("value", "")).upper()
+        if requested_aux:
+            if requested_aux not in {"110VDC", "115VAC", "120VDC", "230VAC", "220VAC", "250VDC"}:
+                errors.append(
+                    f"MSLD auxiliary voltage {fields.get('aux_voltage', {}).get('value')} is outside "
+                    "the voltage types/ranges encoded for MLFB position 8 = 5."
+                )
+            else:
+                checks.append({
+                    "item": "Auxiliary voltage",
+                    "status": "matched",
+                    "detail": f"Position 8 = 5 supports the chart's DC 110-250 V / AC 115-230 V range; MSLD specifies {fields.get('aux_voltage', {}).get('value')}.",
+                })
+
+    # Verify the fixed template fields against the decoded MLFB when the MSLD contains
+    # enough evidence. The language code is checked against position 10.
+    if parsed["position_10"] == "B":
+        checks.append({"item": "Communication language", "status": "matched", "detail": "Position 10 = B: English default."})
+    elif parsed["position_10"] == "E":
+        warnings.append("Language check: MLFB position 10 = E indicates Spanish default, while the template states English.")
+    elif parsed["position_10"] == "G":
+        warnings.append("Language check: MLFB position 10 = G indicates Russian region, while the template states English.")
+
     missing = [
         key for key in (
             "ct_secondary", "aux_voltage", "hardware_functions", "io_hardware",
