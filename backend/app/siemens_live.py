@@ -54,7 +54,7 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 8.0) -> dict:
         }
 
     # Siemens Industry Mall's public product URL pattern; quote the MLFB as a path segment.
-    url = "https://mall.industry.siemens.com/mall/en/us/Catalog/Product/?mlfb=" + quote(normalized, safe="-+")
+    url = "https://mall.industry.siemens.com/mall/en/us/Catalog/Product/?mlfb=" + quote(normalized, safe="-")
     request = Request(
         url,
         headers={
