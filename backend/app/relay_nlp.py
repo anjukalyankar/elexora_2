@@ -433,18 +433,32 @@ def validate_7sj66(fields: dict) -> dict:
 
     # Position 8 option 5 specifies the auxiliary-voltage range shown in the chart.
     if parsed["position_8"] == "5":
-        requested_aux = re.sub(r"\\s+", "", fields.get("aux_voltage", {}).get("value", "")).upper()
+        requested_aux = re.sub(r"\s+", "", fields.get("aux_voltage", {}).get("value", "")).upper()
         if requested_aux:
-            if requested_aux not in {"110VDC", "115VAC", "120VDC", "230VAC", "220VAC", "250VDC"}:
+            voltage_match = re.fullmatch(r"(\\d{2,3})V(DC|AC)", requested_aux)
+            in_range = False
+            if voltage_match:
+                voltage_value = int(voltage_match.group(1))
+                voltage_type = voltage_match.group(2)
+                in_range = (
+                    110 <= voltage_value <= 250 if voltage_type == "DC"
+                    else 115 <= voltage_value <= 230
+                )
+            if not in_range:
                 errors.append(
                     f"MSLD auxiliary voltage {fields.get('aux_voltage', {}).get('value')} is outside "
-                    "the voltage types/ranges encoded for MLFB position 8 = 5."
+                    "the chart range for MLFB position 8 = 5 (DC 110-250 V or AC 115-230 V)."
                 )
+                checks.append({
+                    "item": "Auxiliary voltage",
+                    "status": "mismatch",
+                    "detail": f"Position 8 = 5; MSLD specifies {fields.get('aux_voltage', {}).get('value')}.",
+                })
             else:
                 checks.append({
                     "item": "Auxiliary voltage",
                     "status": "matched",
-                    "detail": f"Position 8 = 5 supports the chart's DC 110-250 V / AC 115-230 V range; MSLD specifies {fields.get('aux_voltage', {}).get('value')}.",
+                    "detail": f"Position 8 = 5 supports DC 110-250 V / AC 115-230 V; MSLD specifies {fields.get('aux_voltage', {}).get('value')}.",
                 })
 
     # Verify the fixed template fields against the decoded MLFB when the MSLD contains
