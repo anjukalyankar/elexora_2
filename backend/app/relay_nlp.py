@@ -59,7 +59,7 @@ MODEL_RE = re.compile(r"\b(7SJ66\s*11\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(
 
 def normalize_source(text: str) -> str:
     text = (text or "").upper().replace("＋", "+").replace("–", "-").replace("—", "-")
-    text = re.sub(r"\b7SJ66\s*11\b", "7SJ66\d{2}", text)
+    text = re.sub(r"\b7SJ66\s*(\d{2})\b", r"7SJ66\1", text)
     text = re.sub(r"\bI\s*EC\s*61850\b", "IEC 61850", text)
     text = re.sub(r"\bR\s*J\s*45\b", "RJ45", text)
     text = re.sub(r"\s+", " ", text)
