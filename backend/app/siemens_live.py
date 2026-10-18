@@ -54,7 +54,7 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 8.0) -> dict:
         }
 
     # Siemens Industry Mall's public product URL pattern; quote the MLFB as a path segment.
-    url = "https://mall.industry.siemens.com/mall/en/us/Catalog/Product/" + quote(normalized, safe="-+")
+    url = "https://mall.industry.siemens.com/mall/en/us/Catalog/Product/?mlfb=" + quote(normalized, safe="-+")
     request = Request(
         url,
         headers={
@@ -109,7 +109,9 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 8.0) -> dict:
         }
 
     canonical_clean = re.sub(r"\\s+", "", canonical).upper()
-    exact = canonical_clean == normalized if canonical_clean else False
+    canonical_key = re.sub(r"[-+]", "", canonical_clean)
+    requested_key = re.sub(r"[-+]", "", normalized)
+    exact = canonical_key == requested_key if canonical_clean else False
     return {
         "status": "product_page_found" if exact else "product_page_found_needs_confirmation",
         "mlfb": normalized,
