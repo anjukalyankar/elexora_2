@@ -435,7 +435,7 @@ def validate_7sj66(fields: dict) -> dict:
     if parsed["position_8"] == "5":
         requested_aux = re.sub(r"\s+", "", fields.get("aux_voltage", {}).get("value", "")).upper()
         if requested_aux:
-            voltage_match = re.fullmatch(r"(\\d{2,3})V(DC|AC)", requested_aux)
+            voltage_match = re.fullmatch(r"(\d{2,3})V(DC|AC)", requested_aux)
             in_range = False
             if voltage_match:
                 voltage_value = int(voltage_match.group(1))
