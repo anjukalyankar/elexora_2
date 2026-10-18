@@ -54,7 +54,7 @@ PROTECTION_VERSION_ANSI = {
     "FE": ["27/59", "81U/O", "27/47/59(N)", "32/55/81R"],
 }
 
-MODEL_RE = re.compile(r"\b(7SJ66\s*11\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b", re.I)
+MODEL_RE = re.compile(r"\b(7SJ66\s*\d{2}\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b", re.I)
 
 
 def normalize_source(text: str) -> str:
