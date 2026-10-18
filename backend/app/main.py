@@ -640,8 +640,16 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='7SJ6611':
-   relay_source = ' '.join([r.get('description',''), r.get('details',''), msld_text])
+   # Relay validation must use only this equipment row. Passing the full MSLD
+   # could borrow an MLFB from another section/row and create a relay BOM line
+   # that is not actually specified for this designation.
+   relay_source = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    relay_analysis = analyze_7sj66(relay_source)
+   # A designation such as K51 alone is not proof that a 7SJ66 was specified.
+   # If this row contains no 7SJ66 MLFB, omit the relay row entirely: do not
+   # fabricate a template description or raise a missing-relay warning.
+   if not relay_analysis.get('fields', {}).get('mlfb', {}).get('value'):
+    continue
    spec = relay_analysis['description']
    spec_lines = spec.splitlines()
    editable_fields=[]
