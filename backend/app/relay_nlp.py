@@ -34,6 +34,26 @@ CHART_PROTOCOL_SUFFIXES = {
     "L2R": {"protocol": "DNP3 + IEC 61850", "interface": "100 Mbit Ethernet, electrical, RJ45 connector"},
     "L2S": {"protocol": "DNP3 + IEC 61850", "interface": "100 Mbit Ethernet, optical, LC connector"},
 }
+
+# Selection-chart decoding used to build the protection list from the MLFB itself.
+CHART_MOUNTING_OPTIONS = {
+    "D": "FLUSH MOUNTING (screw terminals, 8-line text display)",
+    "E": "FLUSH MOUNTING (spring terminals, screw-type CT terminals, 8-line text display)",
+    "J": "FLUSH MOUNTING (screw terminals, graphical display)",
+    "K": "FLUSH MOUNTING (spring terminals, screw-type CT terminals, graphical display)",
+}
+# ANSI functions listed in the supplied 7SJ66 chart under the base FA version.
+# Keep combined ANSI designations as printed in the chart.
+BASE_ANSI_PROTECTION = [
+    "50/51", "50N/51N", "50/50N", "51V", "49", "46", "37", "47",
+    "59N/64", "50BF", "74TC", "86",
+]
+# Additional ANSI functions shown for the FE option (V, P, f) in the chart.
+PROTECTION_VERSION_ANSI = {
+    "FA": [],
+    "FE": ["27/59", "81U/O", "27/47/59(N)", "32/55/81R"],
+}
+
 MODEL_RE = re.compile(r"\b(7SJ66\s*11\s*[- ]\s*[A-Z0-9]{5}\s*[- ]\s*[A-Z0-9]{4}(?:\s*[+-]\s*(?:L0D|L0G|L0R|L0S|L2R|L2S)|\s*[- ]\s*[A-Z0-9]{3}))\b", re.I)
 
 
@@ -372,5 +392,32 @@ def validate_7sj66(fields: dict) -> dict:
 
 def analyze_7sj66(source_text: str) -> dict:
     fields = extract_7sj66_fields(source_text)
+
+    # The MLFB chart is authoritative for coded construction and protection options.
+    # Use it to fill mounting/protection when the MSLD text doesn't spell them out.
+    raw_mlfb = fields.get("mlfb", {}).get("value", "")
+    parsed = _parse_7sj66_mlfb(raw_mlfb) if raw_mlfb else {"valid_format": False}
+    if parsed.get("valid_format"):
+        mounting_code = parsed.get("position_9", "")
+        mounting = CHART_MOUNTING_OPTIONS.get(mounting_code)
+        if mounting:
+            fields["mounting"] = {
+                "value": mounting,
+                "confidence": 0.99,
+                "evidence": f"MLFB position 9 = {mounting_code}; decoded from 7SJ66 selection chart",
+            }
+
+        version_code = parsed.get("protection_code_14_15", "")
+        if version_code in PROTECTION_VERSION_OPTIONS:
+            # For FE specifically, emit all base functions plus the V/P/f add-on
+            # functions defined by the selection chart, rather than only MSLD text.
+            if version_code in PROTECTION_VERSION_ANSI:
+                ansi_codes = BASE_ANSI_PROTECTION + PROTECTION_VERSION_ANSI[version_code]
+                fields["protection"] = {
+                    "value": ansi_codes,
+                    "confidence": 0.99,
+                    "evidence": f"MLFB positions 14-15 = {version_code}; base + option functions decoded from selection chart",
+                }
+
     validation = validate_7sj66(fields)
     return {"fields": fields, "description": render_7sj66_description(fields), "validation": validation}
