@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from backend.app.siemens_live import LOOKUP_BUILD_ID, lookup_siemens_product
 
-app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.3.1")
+app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.3.2")
 
 
 class VerifyRequest(BaseModel):
@@ -80,12 +80,27 @@ def search_web(mlfb: str, timeout_seconds: float = 15.0) -> dict:
         status = "search_error"
     else:
         status = "no_results"
+    def normalize_mlfb(value: str) -> str:
+        # Siemens pages sometimes render "+" as a space; ignore separators for comparison.
+        return "".join(ch for ch in value.upper() if ch.isalnum())
+
+    requested_normalized = normalize_mlfb(mlfb)
+    for item in combined:
+        searchable = " ".join(str(item.get(field) or "") for field in ("title", "snippet", "url"))
+        item["exact_mlfb_mentioned"] = requested_normalized in normalize_mlfb(searchable)
+        item["is_official_siemens_domain"] = official(item)
+
+    exact_matches = [item for item in combined if item["exact_mlfb_mentioned"]]
+    official_exact_matches = [item for item in exact_matches if item["is_official_siemens_domain"]]
     return {
         "status": status, "provider": "Serper Google Search API",
         "query_count": len(queries), "result_count": len(combined),
         "official_siemens_result_count": sum(official(item) for item in combined),
+        "exact_mlfb_match_count": len(exact_matches),
+        "official_exact_mlfb_match_count": len(official_exact_matches),
+        "exact_mlfb_matches": exact_matches[:10],
         "results": combined[:20], "errors": query_errors,
-        "verification_note": "Search results are leads, not proof. Open source pages and compare exact MLFB/specifications; a result or snippet alone cannot validate technical compatibility.",
+        "verification_note": "Exact-match counts mean the MLFB text appears in the search result title/snippet/URL (separators such as + and spaces are normalized). This is search evidence only, not proof of product validity or technical compatibility.",
     }
 
 @app.get("/health")
