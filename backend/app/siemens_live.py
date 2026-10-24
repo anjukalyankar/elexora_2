@@ -12,6 +12,8 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 import re
 
+LOOKUP_BUILD_ID = "siemens-live-lookup-2026-10-25-b"
+
 
 class _VisibleText(HTMLParser):
     def __init__(self):
