@@ -4,6 +4,7 @@ No ELEXORA production BOM/auth/database code is imported.
 """
 import json
 import os
+import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -20,6 +21,7 @@ class VerifyRequest(BaseModel):
     # Values decoded from the selection chart and requirements extracted from MSLD.
     selection_chart_specs: dict[str, str | int | float | bool] | None = None
     msld_specs: dict[str, str | int | float | bool] | None = None
+    msld_text: str | None = Field(default=None, max_length=50000)
 
 
 
@@ -184,6 +186,33 @@ def decode_7sj66_mlfb(mlfb: str) -> dict:
         "source": "Uploaded 7SJ66 1 edited.pdf, Siemens SIPROTEC 7SJ66 selection chart, EA price list December 2023, printed pages 82-85",
         "limitations": ["This decoder covers the chart codes explicitly transcribed into the POC. Any code not mapped is marked unknown, never silently assumed valid.", "The chart is a configuration/selection source; it does not independently prove that Siemens currently sells or recognizes a complete order number."]
     }
+
+
+def extract_msld_specs(text: str | None) -> dict:
+    """Extract only explicit, conservative relay requirements from OCR/text supplied by caller."""
+    if not text:
+        return {}
+    t = re.sub(r"\\s+", " ", text).upper()
+    specs = {}
+    if re.search(r"\\bCT\\s*(?:SEC(?:ONDARY)?)?\\s*[:=]?\\s*1\\s*A\\b|\\bIPH\\s*[:=]?\\s*1\\s*A\\b", t):
+        specs["ct_secondary"] = "1A"
+    elif re.search(r"\\bCT\\s*(?:SEC(?:ONDARY)?)?\\s*[:=]?\\s*5\\s*A\\b|\\bIPH\\s*[:=]?\\s*5\\s*A\\b", t):
+        specs["ct_secondary"] = "5A"
+    supply = re.search(r"\\b(?:AUX(?:ILIARY)?(?:\\s+SUPPLY)?|SUPPLY)\\s*[:=]?\\s*(24\\s*[-–]?\\s*48\\s*V\\s*DC|110\\s*V\\s*DC|220\\s*V\\s*DC|110\\s*[-–]?\\s*250\\s*V(?:\\s*DC)?|110\\s*[-–]?\\s*250\\s*V\\s*/\\s*115\\s*[-–]?\\s*230\\s*V\\s*AC\\s*/\\s*DC)", t)
+    if supply:
+        specs["auxiliary_supply"] = re.sub(r"\\s+", " ", supply.group(1)).strip()
+    if "16BI" in t and "7BO" in t and "4CT" in t and ("4VT" in t or "4V" in t):
+        specs["hardware_io"] = "1/3 19-inch housing; 16 BI, 7 BO; 4xV, 4xI"
+    if re.search(r"\\bFLUSH\\s+MOUNT(?:ING)?\\b", t):
+        specs["mounting_display"] = "Flush mounting"
+    if "IEC 61850" in t and ("RJ45" in t or "ELECTRICAL" in t):
+        specs["system_port"] = "IEC 61850 electrical RJ45"
+    elif "IEC 61850" in t and ("LC" in t or "OPTICAL" in t):
+        specs["system_port"] = "IEC 61850 optical LC"
+    ansi = sorted(set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", t)))
+    if ansi:
+        specs["ansi_functions"] = ", ".join(ansi)
+    return specs
 
 
 def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) -> dict:
@@ -354,8 +383,11 @@ def verify(request: VerifyRequest):
     # product confirmation; search-result snippets are discovery evidence, not approval.
     official_exact = status == "product_page_found" and bool(result.get("exact_mlfb_match"))
     chart_specs = request.selection_chart_specs or {item["parameter"]: item["value"] for item in decoded.get("comparison_specs", [])}
+    extracted_msld_specs = request.msld_specs or extract_msld_specs(request.msld_text)
+    result["msld_extracted_specs"] = extracted_msld_specs
+    result["msld_extraction_note"] = "Conservative text extraction; only explicitly recognized values are compared. Review extracted values against the source MSLD." if request.msld_text else "Pass msld_text (OCR/extracted MSLD text) or msld_specs to run technical comparison."
     result["technical_assessment"] = assess_technical_match(
-        chart_specs or None, request.msld_specs, official_exact
+        chart_specs or None, extracted_msld_specs or None, official_exact
     )
     result["final_validation_status"] = result["technical_assessment"]["status"]
     result["final_validation_message"] = result["technical_assessment"]["message"]
