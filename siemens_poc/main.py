@@ -1,4 +1,4 @@
-"""Standalone Siemens MLFB lookup POC with optional Brave web-search evidence.
+"""Standalone Siemens MLFB lookup POC with optional Serper web-search evidence.
 
 No ELEXORA production BOM/auth/database code is imported.
 """
@@ -12,66 +12,47 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from backend.app.siemens_live import LOOKUP_BUILD_ID, lookup_siemens_product
 
-app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.2.0")
+app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.3.0")
 
 
 class VerifyRequest(BaseModel):
     mlfb: str = Field(min_length=1, max_length=80)
 
 
-def search_web(mlfb: str, timeout_seconds: float = 12.0) -> dict:
-    """Search the web via Brave Search API; never treats a search hit as proof."""
-    api_key = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
+def search_web(mlfb: str, timeout_seconds: float = 15.0) -> dict:
+    """Search via Serper Google Search API; results are leads, never proof."""
+    api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
         return {
             "status": "not_configured",
-            "provider": "Brave Search API",
-            "message": "Set BRAVE_SEARCH_API_KEY in the POC service environment to enable web search.",
+            "provider": "Serper Google Search API",
+            "message": "Set SERPER_API_KEY in the POC service environment to enable web search.",
             "results": [],
         }
 
-    queries = [
-        f'"{mlfb}" Siemens',
-        f'"{mlfb}" relay',
-        f'site:siemens.com "{mlfb}"',
-    ]
-    combined = []
-    seen_urls = set()
-    query_errors = []
-
+    queries = [f'"{mlfb}" Siemens', f'"{mlfb}" relay', f'site:siemens.com "{mlfb}"']
+    combined, seen_urls, query_errors = [], set(), []
     for query in queries:
-        params = urlencode({
-            "q": query,
-            "count": 10,
-            "search_lang": "en",
-            "safesearch": "moderate",
-        })
-        url = "https://api.search.brave.com/res/v1/web/search?" + params
+        body = json.dumps({"q": query, "num": 10, "gl": "in", "hl": "en"}).encode("utf-8")
         request = Request(
-            url,
-            headers={
-                "Accept": "application/json",
-                "X-Subscription-Token": api_key,
-                "User-Agent": "ELEXORA2-Siemens-MLFB-POC/0.2",
-            },
-            method="GET",
+            "https://google.serper.dev/search",
+            data=body,
+            headers={"Content-Type": "application/json", "Accept": "application/json",
+                     "X-API-KEY": api_key, "User-Agent": "ELEXORA2-Siemens-MLFB-POC/0.3"},
+            method="POST",
         )
         try:
             with urlopen(request, timeout=timeout_seconds) as response:
                 payload = json.loads(response.read(2_000_000).decode("utf-8", errors="replace"))
-            results = payload.get("web", {}).get("results", [])
-            for item in results:
-                result_url = item.get("url")
+            for item in payload.get("organic", []):
+                result_url = item.get("link")
                 if not result_url or result_url in seen_urls:
                     continue
                 seen_urls.add(result_url)
-                combined.append({
-                    "title": item.get("title"),
-                    "url": result_url,
-                    "snippet": item.get("description"),
-                    "query": query,
-                    "domain": item.get("profile", {}).get("long_name") or item.get("meta_url", {}).get("hostname"),
-                })
+                domain = result_url.split("/")[2].lower() if "://" in result_url else ""
+                combined.append({"title": item.get("title"), "url": result_url,
+                                 "snippet": item.get("snippet"), "query": query,
+                                 "domain": domain, "position": item.get("position")})
         except HTTPError as exc:
             query_errors.append({"query": query, "error": f"HTTP {exc.code}"})
             if exc.code in (401, 403):
@@ -79,35 +60,24 @@ def search_web(mlfb: str, timeout_seconds: float = 12.0) -> dict:
         except (URLError, TimeoutError, OSError, ValueError) as exc:
             query_errors.append({"query": query, "error": type(exc).__name__})
 
-    # Prioritize official Siemens domains, then keep distinct domains represented.
-    def rank(item):
-        domain = (item.get("url") or "").lower()
-        official = any(host in domain for host in ("siemens.com", "sieportal.siemens.com", "industry.siemens.com"))
-        return (0 if official else 1, domain)
+    def official(item):
+        domain = (item.get("domain") or "").split(":")[0]
+        return domain == "siemens.com" or domain.endswith(".siemens.com")
 
-    combined.sort(key=rank)
-    official_count = sum(
-        any(host in (item.get("url") or "").lower() for host in ("siemens.com", "sieportal.siemens.com", "industry.siemens.com"))
-        for item in combined
-    )
+    combined.sort(key=lambda item: (not official(item), item.get("position") or 999))
     if combined:
         status = "results_found"
     elif query_errors:
         status = "search_error"
     else:
         status = "no_results"
-
     return {
-        "status": status,
-        "provider": "Brave Search API",
-        "query_count": len(queries),
-        "result_count": len(combined),
-        "official_siemens_result_count": official_count,
-        "results": combined[:20],
-        "errors": query_errors,
+        "status": status, "provider": "Serper Google Search API",
+        "query_count": len(queries), "result_count": len(combined),
+        "official_siemens_result_count": sum(official(item) for item in combined),
+        "results": combined[:20], "errors": query_errors,
         "verification_note": "Search results are leads, not proof. Open source pages and compare exact MLFB/specifications; a result or snippet alone cannot validate technical compatibility.",
     }
-
 
 @app.get("/health")
 def health():
@@ -116,8 +86,8 @@ def health():
         "status": "running",
         "database_required": False,
         "lookup_build_id": LOOKUP_BUILD_ID,
-        "web_search_provider": "Brave Search API",
-        "web_search_configured": bool(os.getenv("BRAVE_SEARCH_API_KEY", "").strip()),
+        "web_search_provider": "Serper Google Search API",
+        "web_search_configured": bool(os.getenv("SERPER_API_KEY", "").strip()),
     }
 
 
@@ -147,7 +117,7 @@ def verify(request: VerifyRequest):
     if status == "source_unavailable" and search_status == "results_found":
         result["user_message"] = "Siemens page details were unreadable, but web search found candidate sources. Review the links and verify exact specifications; the MLFB is not yet confirmed."
     elif search_status == "not_configured":
-        result["web_search"]["setup_hint"] = "Add BRAVE_SEARCH_API_KEY to the elexora-siemens-poc Render service environment, then redeploy/restart the service."
+        result["web_search"]["setup_hint"] = "Add SERPER_API_KEY to the elexora-siemens-poc Render service environment, then redeploy/restart the service."
     return result
 
 
