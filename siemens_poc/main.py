@@ -215,10 +215,10 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
         message = "Some parameters are missing on one side. Complete the comparison before BOM approval."
     elif not official_exact_match:
         status = "MLFB_RECONFIRMATION_REQUIRED"
-        message = "Supplied parameters match, but an exact official Siemens MLFB result is not confirmed. Reconfirm before approval."
+        message = "Supplied parameters match, but the Siemens product page did not independently confirm the exact MLFB. Reconfirm before approval."
     else:
         status = "VERIFIED"
-        message = "All supplied chart/MSLD parameters match and an exact official Siemens result was found."
+        message = "All supplied chart/MSLD parameters match and the Siemens product page confirmed the exact MLFB."
     return {"status": status, "technical_check_complete": not unverified,
             "deviations": deviations, "unverified_parameters": unverified, "message": message}
 
@@ -348,8 +348,10 @@ def verify(request: VerifyRequest):
         result["user_message"] = "Siemens page details were unreadable, but web search found candidate sources. Review the links and verify exact specifications; the MLFB is not yet confirmed."
     elif search_status == "not_configured":
         result["web_search"]["setup_hint"] = "Add SERPER_API_KEY to the elexora-siemens-poc Render service environment, then redeploy/restart the service."
-    official_exact = bool(result.get("exact_mlfb_match")) or bool(result.get("web_search", {}).get("official_exact_mlfb_match_count", 0))
-    chart_specs = {item["parameter"]: item["value"] for item in decoded.get("comparison_specs", [])}
+    # Only a parsed canonical MLFB from a Siemens product page counts as independent
+    # product confirmation; search-result snippets are discovery evidence, not approval.
+    official_exact = status == "product_page_found" and bool(result.get("exact_mlfb_match"))
+    chart_specs = request.selection_chart_specs or {item["parameter"]: item["value"] for item in decoded.get("comparison_specs", [])}
     result["technical_assessment"] = assess_technical_match(
         chart_specs or None, request.msld_specs, official_exact
     )
