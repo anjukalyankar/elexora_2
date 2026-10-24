@@ -247,10 +247,13 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
         elif key == "ansi_functions":
             # A variant's chart feature list is a capability set, not a list that must all be used.
             msld_codes = set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", right))
+            # FE/FG-style variant labels include "FA basic" as a shorthand for the base protection set.
             chart_codes = set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", left))
+            if "FA BASIC" in left:
+                chart_codes.update({"50", "51", "50N", "51N", "74TC"})
             matches = msld_codes.issubset(chart_codes) if msld_codes else True
         elif key == "hardware_io":
-            matches = all(token in left for token in ("16 BI", "7 BO", "4XU", "4XI")) and all(token in right for token in ("16BI", "7BO"))
+            matches = all(token in left for token in ("16 BI", "7 BO", "4XV", "4XI")) and all(token in right for token in ("16BI", "7BO"))
         if not matches:
             deviations.append({"parameter": key, "selection_chart_value": chart[key], "msld_value": msld[key]})
 
