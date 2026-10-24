@@ -198,24 +198,24 @@ def extract_msld_specs(text: str | None) -> dict:
     """Extract only explicit, conservative relay requirements from OCR/text supplied by caller."""
     if not text:
         return {}
-    t = re.sub(r"\\s+", " ", text).upper()
+    t = re.sub(r"\s+", " ", text).upper()
     specs = {}
-    if re.search(r"\\bCT\\s*(?:SEC(?:ONDARY)?)?\\s*[:=]?\\s*1\\s*A\\b|\\bIPH\\s*[:=]?\\s*1\\s*A\\b", t):
+    if re.search(r"\bCT\s*(?:SEC(?:ONDARY)?)?\s*[:=]?\s*1\s*A\b|\bIPH\s*[:=]?\s*1\s*A\b", t):
         specs["ct_secondary"] = "1A"
-    elif re.search(r"\\bCT\\s*(?:SEC(?:ONDARY)?)?\\s*[:=]?\\s*5\\s*A\\b|\\bIPH\\s*[:=]?\\s*5\\s*A\\b", t):
+    elif re.search(r"\bCT\s*(?:SEC(?:ONDARY)?)?\s*[:=]?\s*5\s*A\b|\bIPH\s*[:=]?\s*5\s*A\b", t):
         specs["ct_secondary"] = "5A"
-    supply = re.search(r"\\b(?:AUX(?:ILIARY)?(?:\\s+SUPPLY)?|SUPPLY)\\s*[:=]?\\s*(24\\s*[-–]?\\s*48\\s*V\\s*DC|110\\s*V\\s*DC|220\\s*V\\s*DC|110\\s*[-–]?\\s*250\\s*V(?:\\s*DC)?|110\\s*[-–]?\\s*250\\s*V\\s*/\\s*115\\s*[-–]?\\s*230\\s*V\\s*AC\\s*/\\s*DC)", t)
+    supply = re.search(r"\b(?:AUX(?:ILIARY)?(?:\s+SUPPLY)?|SUPPLY)\s*[:=]?\s*(24\s*[-–]?\s*48\s*V\s*DC|110\s*V\s*DC|220\s*V\s*DC|110\s*[-–]?\s*250\s*V(?:\s*DC)?|110\s*[-–]?\s*250\s*V\s*/\s*115\s*[-–]?\s*230\s*V\s*AC\s*/\s*DC)", t)
     if supply:
-        specs["auxiliary_supply"] = re.sub(r"\\s+", " ", supply.group(1)).strip()
+        specs["auxiliary_supply"] = re.sub(r"\s+", " ", supply.group(1)).strip()
     if "16BI" in t and "7BO" in t and "4CT" in t and ("4VT" in t or "4V" in t):
         specs["hardware_io"] = "1/3 19-inch housing; 16 BI, 7 BO; 4xV, 4xI"
-    if re.search(r"\\bFLUSH\\s+MOUNT(?:ING)?\\b", t):
+    if re.search(r"\bFLUSH\s+MOUNT(?:ING)?\b", t):
         specs["mounting_display"] = "Flush mounting"
     if "IEC 61850" in t and ("RJ45" in t or "ELECTRICAL" in t):
         specs["system_port"] = "IEC 61850 electrical RJ45"
     elif "IEC 61850" in t and ("LC" in t or "OPTICAL" in t):
         specs["system_port"] = "IEC 61850 optical LC"
-    ansi = sorted(set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", t)))
+    ansi = sorted(set(re.findall(r"\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\b", t)))
     if ansi:
         specs["ansi_functions"] = ", ".join(ansi)
     return specs
@@ -252,14 +252,16 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
             matches = ("FLUSH MOUNTING" in left and "FLUSH MOUNTING" in right)
         elif key == "ansi_functions":
             # A variant's chart feature list is a capability set, not a list that must all be used.
-            msld_codes = set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", right))
+            msld_codes = set(re.findall(r"\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\b", right))
             # FE/FG-style variant labels include "FA basic" as a shorthand for the base protection set.
-            chart_codes = set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", left))
+            chart_codes = set(re.findall(r"\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\b", left))
             if "FA BASIC" in left:
                 chart_codes.update({"50", "51", "50N", "51N", "74TC"})
             matches = msld_codes.issubset(chart_codes) if msld_codes else True
         elif key == "hardware_io":
-            matches = all(token in left for token in ("16 BI", "7 BO", "4XV", "4XI")) and all(token in right for token in ("16BI", "7BO"))
+            has_chart_inputs = "4XV" in left and "4XI" in left
+            has_msld_inputs = "4CT" in right and ("4VT" in right or "4V" in right)
+            matches = has_chart_inputs and has_msld_inputs and ("16 BI" in left and "16BI" in right) and ("7 BO" in left and "7BO" in right)
         if not matches:
             deviations.append({"parameter": key, "selection_chart_value": chart[key], "msld_value": msld[key]})
 
