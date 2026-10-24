@@ -102,7 +102,7 @@ def decode_7sj66_mlfb(mlfb: str) -> dict:
     """Decode all 16 positions using the uploaded chart; report unsupported/incompatible codes."""
     normalized = (mlfb or "").strip().upper().replace("＋", "+")
     normalized = "".join(normalized.split())
-    match = re.fullmatch(r"(7SJ66)([A-Z0-9]{2})-([A-Z0-9]{5})-([A-Z0-9]{4})(?:\+?(L(?:0D|0G|0R|0S|2R|2S)))?", normalized)
+    match = re.fullmatch(r"(7SJ66)([A-Z0-9]{2})-([A-Z0-9]{5})-([A-Z0-9]{4})(?:[-+ ]?(L(?:0D|0G|0R|0S|2R|2S)))?", normalized)
     if not match:
         return {"status": "INVALID_FORMAT", "mlfb": normalized, "message": "Expected 7SJ66xx-xxxxx-xxxx with optional +L0D/+L0G/+L0R/+L0S/+L2R/+L2S suffix."}
 
@@ -161,10 +161,12 @@ def decode_7sj66_mlfb(mlfb: str) -> dict:
     if len(positions) == 16:
         comparison_specs = [
             {"parameter": "ct_secondary", "value": "1A" if positions[6] in ("1", "2") else "5A" if positions[6] in ("5", "6") else "UNKNOWN"},
+            {"parameter": "hardware_io", "value": POSITION_MAPS.get(6, {}).get(positions[5], "UNKNOWN")},
             {"parameter": "auxiliary_supply", "value": POSITION_MAPS.get(8, {}).get(positions[7], "UNKNOWN")},
             {"parameter": "mounting_display", "value": POSITION_MAPS.get(9, {}).get(positions[8], "UNKNOWN")},
             {"parameter": "region_language", "value": POSITION_MAPS.get(10, {}).get(positions[9], "UNKNOWN")},
             {"parameter": "protection_variant", "value": (variant or {}).get("label", "UNKNOWN")},
+            {"parameter": "ansi_functions", "value": ", ".join((variant or {}).get("ansi", []))},
             {"parameter": "system_port", "value": ({"L0D": "IEC 60870-5-103 RS485", "L0G": "DNP3 RS485", "L0R": "IEC 61850 electrical RJ45", "L0S": "IEC 61850 optical LC", "L2R": "DNP3 + IEC 61850 electrical RJ45", "L2S": "DNP3 + IEC 61850 optical LC"}.get(suffix, POSITION_MAPS.get(11, {}).get(positions[10], "UNKNOWN")))},
             {"parameter": "service_port", "value": POSITION_MAPS.get(13, {}).get(positions[12], "UNKNOWN")},
             {"parameter": "position16_options", "value": POSITION_MAPS.get(16, {}).get(positions[15], "UNKNOWN")},
