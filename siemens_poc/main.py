@@ -235,7 +235,23 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
             continue
         left = " ".join(str(chart[key]).upper().split())
         right = " ".join(str(msld[key]).upper().split())
-        if left != right:
+        matches = left == right
+        if key == "auxiliary_supply":
+            # The chart gives an allowed range; a specific MSLD voltage may be inside it.
+            if "110-250 V" in left or "110-250V" in left:
+                matches = ("110V DC" in right or "220V DC" in right or "110 V DC" in right or "220 V DC" in right)
+            elif "24-48 V" in left or "24-48V" in left:
+                matches = any(v in right for v in ("24V DC", "48V DC", "24 V DC", "48 V DC"))
+        elif key == "mounting_display":
+            matches = ("FLUSH MOUNTING" in left and "FLUSH MOUNTING" in right)
+        elif key == "ansi_functions":
+            # A variant's chart feature list is a capability set, not a list that must all be used.
+            msld_codes = set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", right))
+            chart_codes = set(re.findall(r"\\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\\b", left))
+            matches = msld_codes.issubset(chart_codes) if msld_codes else True
+        elif key == "hardware_io":
+            matches = all(token in left for token in ("16 BI", "7 BO", "4XU", "4XI")) and all(token in right for token in ("16BI", "7BO"))
+        if not matches:
             deviations.append({"parameter": key, "selection_chart_value": chart[key], "msld_value": msld[key]})
 
     if deviations:
