@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from backend.app.siemens_live import LOOKUP_BUILD_ID, lookup_siemens_product
 
-app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.3.0")
+app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.3.1")
 
 
 class VerifyRequest(BaseModel):
@@ -30,7 +30,16 @@ def search_web(mlfb: str, timeout_seconds: float = 15.0) -> dict:
             "results": [],
         }
 
-    queries = [f'"{mlfb}" Siemens', f'"{mlfb}" relay', f'site:siemens.com "{mlfb}"']
+    # Search exact and progressively broader forms: Google may not index the + suffix
+    # or the complete configurable MLFB as one searchable string.
+    base_mlfb = mlfb.split("+", 1)[0]
+    product_family = mlfb[:7] if len(mlfb) >= 7 else mlfb
+    queries = list(dict.fromkeys([
+        f'"{mlfb}" Siemens',
+        f'"{base_mlfb}" Siemens relay',
+        f'"{product_family}" Siemens SIPROTEC 7SJ66',
+        f'site:siemens.com "{base_mlfb}"',
+    ]))
     combined, seen_urls, query_errors = [], set(), []
     for query in queries:
         body = json.dumps({"q": query, "num": 10, "gl": "in", "hl": "en"}).encode("utf-8")
