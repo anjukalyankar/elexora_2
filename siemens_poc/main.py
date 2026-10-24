@@ -17,6 +17,48 @@ app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.3.2")
 
 class VerifyRequest(BaseModel):
     mlfb: str = Field(min_length=1, max_length=80)
+    # Values decoded from the selection chart and requirements extracted from MSLD.
+    selection_chart_specs: dict[str, str | int | float | bool] | None = None
+    msld_specs: dict[str, str | int | float | bool] | None = None
+
+
+def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) -> dict:
+    """Compare chart-decoded specifications with MSLD requirements."""
+    if not chart_specs or not msld_specs:
+        return {
+            "status": "MLFB_RECONFIRMATION_REQUIRED",
+            "technical_check_complete": False,
+            "deviations": [],
+            "unverified_parameters": sorted(set((chart_specs or {}).keys()) | set((msld_specs or {}).keys())),
+            "message": "Provide both selection_chart_specs and msld_specs. Search results alone cannot approve the relay.",
+        }
+
+    chart = {str(k).strip().casefold(): v for k, v in chart_specs.items()}
+    msld = {str(k).strip().casefold(): v for k, v in msld_specs.items()}
+    deviations, unverified = [], []
+    for key in sorted(set(chart) | set(msld)):
+        if key not in chart or key not in msld:
+            unverified.append(key)
+            continue
+        left = " ".join(str(chart[key]).upper().split())
+        right = " ".join(str(msld[key]).upper().split())
+        if left != right:
+            deviations.append({"parameter": key, "selection_chart_value": chart[key], "msld_value": msld[key]})
+
+    if deviations:
+        status = "DEVIATION_FOUND"
+        message = "Technical deviation found. Reconfirm the MLFB or MSLD requirement before BOM approval."
+    elif unverified:
+        status = "MLFB_RECONFIRMATION_REQUIRED"
+        message = "Some parameters are missing on one side. Complete the comparison before BOM approval."
+    elif not official_exact_match:
+        status = "MLFB_RECONFIRMATION_REQUIRED"
+        message = "Supplied parameters match, but an exact official Siemens MLFB result is not confirmed. Reconfirm before approval."
+    else:
+        status = "VERIFIED"
+        message = "All supplied chart/MSLD parameters match and an exact official Siemens result was found."
+    return {"status": status, "technical_check_complete": not unverified,
+            "deviations": deviations, "unverified_parameters": unverified, "message": message}
 
 
 def search_web(mlfb: str, timeout_seconds: float = 15.0) -> dict:
@@ -142,6 +184,14 @@ def verify(request: VerifyRequest):
         result["user_message"] = "Siemens page details were unreadable, but web search found candidate sources. Review the links and verify exact specifications; the MLFB is not yet confirmed."
     elif search_status == "not_configured":
         result["web_search"]["setup_hint"] = "Add SERPER_API_KEY to the elexora-siemens-poc Render service environment, then redeploy/restart the service."
+    official_exact = bool(result.get("exact_mlfb_match")) or bool(result.get("web_search", {}).get("official_exact_mlfb_match_count", 0))
+    result["technical_assessment"] = assess_technical_match(
+        request.selection_chart_specs, request.msld_specs, official_exact
+    )
+    result["final_validation_status"] = result["technical_assessment"]["status"]
+    result["final_validation_message"] = result["technical_assessment"]["message"]
+    result["warning"] = result["final_validation_status"] != "VERIFIED"
+    result["user_message"] = result["final_validation_message"]
     return result
 
 
