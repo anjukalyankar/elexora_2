@@ -83,3 +83,18 @@ The decoder's `comparison_specs` are a first-pass normalized subset for the tech
 ```
 
 Important: selection-chart values are the source transcription; exact MSLD value normalization and automated PDF/MSLD extraction are still separate work. For final POC testing, inspect `selection_chart_decode.positions`, `unknown_codes`, `compatibility_issues`, and `technical_assessment` together. A chart decode is not independent proof that a complete MLFB is currently orderable from Siemens.
+
+
+## MSLD text input and technical comparison
+
+`POST /verify` accepts `msld_text` containing OCR/text already extracted from an MSLD, or `msld_specs` as a structured dictionary. The response includes `msld_extracted_specs`, `selection_chart_decode`, and `technical_assessment`. Extraction is deliberately conservative: only recognized values are populated, and the operator must check them against the original drawing.
+
+Example:
+```json
+{
+  "mlfb": "7SJ6611-5EB90-1FE0-L0R",
+  "msld_text": "K55 7SJ6611-5EB90-1FE0-L0R CT SEC: 1A AUX 110V DC 4CT 4VT 16BI+7BO FLUSH MOUNTING IEC 61850 RJ45 50 51 50N 51N 27 59 74TC"
+}
+```
+
+Comparison handles chart supply ranges and protection capability as a set of available functions rather than requiring every available function to be used. It does not yet OCR PDF/image uploads directly. Exact Siemens orderability remains a separate confirmation; a chart-compatible result without official exact MLFB confirmation remains `MLFB_RECONFIRMATION_REQUIRED`.
