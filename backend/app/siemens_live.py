@@ -7,6 +7,7 @@ does not expose enough readable product evidence, return source_unavailable.
 from __future__ import annotations
 
 from html.parser import HTMLParser
+import inspect
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -170,5 +171,8 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 10.0) -> dict:
         "mlfb": normalized,
         "source": "Siemens SiePortal / Industry Mall",
         "attempts": attempts,
+        "runtime_module_file": inspect.getsourcefile(lookup_siemens_product),
+        "runtime_lookup_build_id": LOOKUP_BUILD_ID,
+        "runtime_url_candidates": urls,
         "message": "Siemens returned no readable server-rendered product details. This does not prove the MLFB is invalid; open the Siemens product page or verify against the official selection chart.",
     }
