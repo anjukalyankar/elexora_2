@@ -125,10 +125,10 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 10.0) -> dict:
                 html = response.read(3_000_000).decode("utf-8", errors="replace")
                 final_url = response.geturl()
         except HTTPError as exc:
-            attempts.append({"url": url, "http_status": exc.code})
+            attempts.append({"requested_url": url, "http_status": exc.code})
             continue
         except (URLError, TimeoutError, OSError) as exc:
-            attempts.append({"url": url, "error": type(exc).__name__})
+            attempts.append({"requested_url": url, "error": type(exc).__name__})
             continue
 
         parsed = _parse_product_page(html)
@@ -138,7 +138,7 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 10.0) -> dict:
             "no products found", "page not found", "product could not be found",
             "no result found", "error 404",
         )):
-            attempts.append({"url": final_url, "http_status": status_code, "error": "product not found message"})
+            attempts.append({"requested_url": url, "final_url": final_url, "http_status": status_code, "error": "product not found message"})
             continue
 
         canonical = parsed["canonical_mlfb"]
@@ -146,7 +146,7 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 10.0) -> dict:
         # A JS app shell often returns HTTP 200 without product details. Do not
         # call that a successful verification just because the URL contains an MLFB.
         if not parsed["page_has_product"]:
-            attempts.append({"url": final_url, "http_status": status_code, "error": "product details not present in server-rendered page"})
+            attempts.append({"requested_url": url, "final_url": final_url, "http_status": status_code, "error": "product details not present in server-rendered page"})
             continue
 
         return {
