@@ -32,3 +32,35 @@ Keep the key only in Render environment variables. Do not commit it to GitHub or
 - Search/authentication/provider errors must produce review warnings, not a false invalid-MLFB result.
 
 The service is a POC only. Production ELEXORA BOM/authentication logic is not changed.
+
+
+## Technical validation (POC stage)
+
+`POST /verify` optionally accepts two dictionaries:
+- `selection_chart_specs`: parameters decoded from the official Siemens selection chart for the submitted MLFB.
+- `msld_specs`: corresponding requirements extracted from the MSLD.
+
+Example request body:
+
+```json
+{
+  "mlfb": "7SJ6611-5DB90-1FG4+L0R",
+  "selection_chart_specs": {
+    "ct_secondary": "1A",
+    "auxiliary_supply": "110V DC",
+    "mounting": "flush"
+  },
+  "msld_specs": {
+    "ct_secondary": "1A",
+    "auxiliary_supply": "110V DC",
+    "mounting": "flush"
+  }
+}
+```
+
+The endpoint returns `technical_assessment.status`:
+- `DEVIATION_FOUND`: at least one compared parameter differs; details are in `deviations`.
+- `MLFB_RECONFIRMATION_REQUIRED`: specs are missing, or exact official Siemens MLFB evidence is unavailable.
+- `VERIFIED`: supplied parameters match and exact official Siemens evidence was found.
+
+Important: this first implementation compares supplied chart/MSLD fields; it does **not yet automatically decode every MLFB position from the PDF selection chart or extract specs from an uploaded MSLD**. Do not mark a relay verified unless those two dictionaries were genuinely derived from the chart and MSLD. Search result counts alone never approve or reject an MLFB.
