@@ -22,6 +22,168 @@ class VerifyRequest(BaseModel):
     msld_specs: dict[str, str | int | float | bool] | None = None
 
 
+
+
+# Position maps transcribed from the uploaded Siemens SIPROTEC 7SJ66 selection chart
+# ("7SJ66 1 edited.pdf", EA price list, Dec 2023, printed pages 82-85).
+POSITION_MAPS = {
+    6: {
+        "1": "1/3 19-inch housing; 16 BI, 7 BO; 4xV, 4xI",
+        "2": "1/3 19-inch housing; 22 BI, 10 BO; 4xV, 4xI",
+        "3": "1/2 19-inch housing; 36 BI, 23 BO; 4 function keys; 4xV, 4xI",
+    },
+    7: {
+        "1": "Iph 1 A; Ie 1 A (minimum 0.05 A; insensitive earth input)",
+        "2": "Iph 1 A; Ie sensitive (minimum 0.001 A)",
+        "5": "Iph 5 A; Ie 5 A (minimum 0.25 A; insensitive earth input)",
+        "6": "Iph 5 A; Ie sensitive (minimum 0.001 A)",
+    },
+    8: {
+        "4": "DC 24-48 V; binary input threshold 19 V DC",
+        "5": "DC 110-250 V / AC 115-230 V; binary input threshold 88 V DC",
+        "6": "DC 110-250 V / AC 115-230 V; binary input threshold 176 V DC",
+    },
+    9: {
+        "D": "Flush mounting; screw terminals; 8-line text display",
+        "E": "Flush mounting; spring terminals; screw CT terminals; 8-line text display",
+        "J": "Flush mounting; screw terminals; graphical display",
+        "K": "Flush mounting; spring terminals; screw CT terminals; graphical display",
+    },
+    10: {
+        "B": "World region; 50/60 Hz; IEC/ANSI characteristics; English (changeable)",
+        "E": "World region; 50/60 Hz; IEC/ANSI characteristics; Spanish (changeable)",
+        "G": "RU region; 50/60 Hz; IEC/ANSI characteristics; Russian (changeable)",
+    },
+    11: {
+        "0": "Port B: no system port",
+        "2": "Port B: IEC 60870-5-103 over RS485",
+        "9": "Port B: protocol selected by position 12",
+    },
+    12: {
+        "0": "Port B option code 0; required for L0R/L0S suffix options",
+        "2": "Port B option code 2 (IEC 60870-5-103/RS485 family)",
+        "6": "Port B option code 6; allowed with IEC 61850 Ethernet suffix options",
+    },
+    13: {
+        "0": "Port C: no service port",
+        "2": "Port C: DIGSI 4 / modem / RTD unit, electrical RS485",
+        "6": "Port C: Ethernet RJ45 for DIGSI/RTD; no IEC 61850 on this service port",
+    },
+    16: {
+        "0": "Without autoreclose, fault locator or synchro-check",
+        "1": "Autoreclose (79)",
+        "2": "Fault locator (21FL)",
+        "3": "Autoreclose (79) and fault locator (21FL)",
+        "4": "Synchro-check (25), one function group; no asynchronous switching",
+        "7": "Synchro-check (25), autoreclose (79), and fault locator (21FL)",
+    },
+}
+
+PROTECTION_VARIANTS = {
+    "FA": {"label": "Basic version", "ansi": ["50/51", "50N/51N", "51V", "49", "46", "37", "47", "59N/64", "50BF", "74TC", "86"], "features": ["overcurrent", "earth-fault", "ground-fault via insensitive IEE input", "flexible current-derived protection", "overload", "negative sequence", "undercurrent", "phase sequence", "displacement voltage", "breaker failure", "trip circuit supervision", "lockout"]},
+    "FE": {"label": "Basic version V, P, f", "ansi": ["FA basic", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["FA basic functions", "under/overvoltage", "under/overfrequency", "voltage/power/frequency-derived flexible protection"]},
+    "PE": {"label": "Basic version IEF, V, P, f", "ansi": ["FA basic", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["FE functions", "intermittent earth-fault"]},
+    "FC": {"label": "Basic version directional", "ansi": ["FA basic", "67/67N"], "features": ["directional phase and earth-current elements"]},
+    "FG": {"label": "Basic version directional, V, P, f", "ansi": ["FA basic", "67/67N", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["directional phase and earth-current elements", "voltage/power/frequency protection"]},
+    "PG": {"label": "Basic version directional, IEF, V, P, f", "ansi": ["FA basic", "67/67N", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["directional protection", "intermittent earth-fault", "voltage/power/frequency protection"]},
+    "PC": {"label": "Basic version directional, IEF", "ansi": ["FA basic", "67/67N"], "features": ["directional protection", "intermittent earth-fault"]},
+    "FD": {"label": "Directional sensitive earth-fault", "ansi": ["FA basic", "67/67N", "67Ns", "87N"], "features": ["directional phase/earth current", "sensitive earth-fault detection", "intermittent ground-fault", "high-impedance restricted earth fault"]},
+    "PD": {"label": "Directional sensitive earth-fault with IEF", "ansi": ["FA basic", "67/67N", "67Ns", "87N"], "features": ["FD functions", "intermittent earth-fault"]},
+    "FF": {"label": "Directional sensitive earth-fault, V, P, f", "ansi": ["FA basic", "67Ns", "87N", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["sensitive earth-fault", "intermittent ground-fault", "restricted earth fault", "voltage/power/frequency protection"]},
+    "FB": {"label": "Directional sensitive earth-fault", "ansi": ["FA basic", "67Ns", "87N"], "features": ["sensitive earth-fault detection", "intermittent ground-fault", "restricted earth fault"]},
+    "HF": {"label": "Motor, directional sensitive earth-fault, V, P, f", "ansi": ["FA basic", "67Ns", "87N", "48/14", "66/86", "51M", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["motor starting/locked-rotor", "restart inhibit", "motor load-jam/statistics", "sensitive earth-fault", "voltage/power/frequency protection"]},
+    "HH": {"label": "Motor, directional sensitive earth-fault, RMZ, V, P, f", "ansi": ["FA basic", "67/67N", "67Ns", "87N", "48/14", "66/86", "51M", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["motor protection", "sensitive earth-fault", "intermittent ground-fault", "restricted earth fault", "voltage/power/frequency protection"]},
+    "RH": {"label": "Motor directional sensitive earth-fault variant", "ansi": ["FA basic", "67/67N", "67Ns", "87N", "48/14", "66/86", "51M", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["motor protection", "sensitive earth-fault", "intermittent ground-fault", "restricted earth fault", "voltage/power/frequency protection"]},
+    "HG": {"label": "Motor, directional V, P, f", "ansi": ["FA basic", "67/67N", "48/14", "66/86", "51M", "27/59", "81U/O", "27/47/59(N)", "32/55/81R"], "features": ["motor starting/locked-rotor", "restart inhibit", "motor load-jam/statistics", "voltage/power/frequency protection"]},
+    "HA": {"label": "Motor basic version", "ansi": ["FA basic", "48/14", "66/86", "51M"], "features": ["motor starting/locked-rotor", "restart inhibit", "motor load-jam/statistics"]},
+}
+
+def decode_7sj66_mlfb(mlfb: str) -> dict:
+    """Decode all 16 positions using the uploaded chart; report unsupported/incompatible codes."""
+    normalized = (mlfb or "").strip().upper().replace("＋", "+")
+    normalized = "".join(normalized.split())
+    match = re.fullmatch(r"(7SJ66)([A-Z0-9]{2})-([A-Z0-9]{5})-([A-Z0-9]{4})(?:\+?(L(?:0D|0G|0R|0S|2R|2S)))?", normalized)
+    if not match:
+        return {"status": "INVALID_FORMAT", "mlfb": normalized, "message": "Expected 7SJ66xx-xxxxx-xxxx with optional +L0D/+L0G/+L0R/+L0S/+L2R/+L2S suffix."}
+
+    positions = match.group(1) + match.group(2) + match.group(3) + match.group(4)
+    suffix = match.group(5)
+    decoded = []
+    unknown = []
+    for position in range(1, 17):
+        code = positions[position - 1]
+        if position <= 5:
+            description = "SIPROTEC 7SJ66 family" if position == 5 else "Family prefix"
+        elif position == 14:
+            description = "Protection variant first letter; interpret with position 15"
+        elif position == 15:
+            pair = positions[13:15]
+            variant = PROTECTION_VARIANTS.get(pair)
+            description = variant["label"] if variant else None
+            if not variant:
+                unknown.append({"position": "14-15", "code": pair, "reason": "Combination not mapped in the uploaded chart"})
+        elif position == 11 and code == "9":
+            description = POSITION_MAPS[11][code]
+        else:
+            description = POSITION_MAPS.get(position, {}).get(code)
+        decoded.append({"position": position, "code": code, "description": description})
+        if description is None and position not in (14,):
+            unknown.append({"position": position, "code": code, "reason": "Code not mapped in uploaded selection chart"})
+
+    compatibility = []
+    ct_code = positions[6]
+    variant_pair = positions[13:15]
+    if ct_code in ("1", "5") and variant_pair[1] not in ("A", "C", "E", "G"):
+        compatibility.append({"positions": "7 and 15", "reason": "Chart says position 7 = 1 or 5 permits position 15 only A/C/E/G", "codes": {"7": ct_code, "15": variant_pair[1]}})
+    if ct_code in ("2", "6") and variant_pair[1] not in ("B", "D", "F", "H"):
+        compatibility.append({"positions": "7 and 15", "reason": "Chart says position 7 = 2 or 6 permits position 15 only B/D/F/H", "codes": {"7": ct_code, "15": variant_pair[1]}})
+    if positions[10] == "9" and positions[11] not in ("0", "6"):
+        compatibility.append({"positions": "11-12", "reason": "Chart restricts IEC 61850 Ethernet options to position 12 = 0 or 6", "codes": {"11": positions[10], "12": positions[11]}})
+    if positions[11] not in ("0", "2", "6"):
+        compatibility.append({"positions": "12", "reason": "Position 12 code is not supported by the chart's port-B options", "codes": {"12": positions[11]}})
+    if suffix:
+        suffix_map = {
+            "L0D": "IEC 60870-5-103 / RS485 system port",
+            "L0G": "DNP3 / RS485 system port",
+            "L0R": "IEC 61850; 100 Mbit Ethernet; electrical double RJ45",
+            "L0S": "IEC 61850; 100 Mbit Ethernet; optical double LC",
+            "L2R": "DNP3 + IEC 61850; 100 Mbit Ethernet; electrical double RJ45",
+            "L2S": "DNP3 + IEC 61850; 100 Mbit Ethernet; optical double LC",
+        }
+        decoded.append({"position": "suffix", "code": suffix, "description": suffix_map[suffix]})
+        if positions[10] != "9":
+            compatibility.append({"positions": "11 and suffix", "reason": "A system-port suffix is present but position 11 is not code 9", "codes": {"11": positions[10], "suffix": suffix}})
+        if positions[11] not in ("0", "6"):
+            compatibility.append({"positions": "12 and suffix", "reason": "Chart allows the listed IEC 61850/system Ethernet suffix options only with position 12 = 0 or 6", "codes": {"12": positions[11], "suffix": suffix}})
+
+    variant = PROTECTION_VARIANTS.get(variant_pair)
+    comparison_specs = []
+    if len(positions) == 16:
+        comparison_specs = [
+            {"parameter": "ct_secondary", "value": "1A" if positions[6] in ("1", "2") else "5A" if positions[6] in ("5", "6") else "UNKNOWN"},
+            {"parameter": "auxiliary_supply", "value": POSITION_MAPS.get(8, {}).get(positions[7], "UNKNOWN")},
+            {"parameter": "mounting_display", "value": POSITION_MAPS.get(9, {}).get(positions[8], "UNKNOWN")},
+            {"parameter": "region_language", "value": POSITION_MAPS.get(10, {}).get(positions[9], "UNKNOWN")},
+            {"parameter": "protection_variant", "value": (variant or {}).get("label", "UNKNOWN")},
+            {"parameter": "system_port", "value": ({"L0D": "IEC 60870-5-103 RS485", "L0G": "DNP3 RS485", "L0R": "IEC 61850 electrical RJ45", "L0S": "IEC 61850 optical LC", "L2R": "DNP3 + IEC 61850 electrical RJ45", "L2S": "DNP3 + IEC 61850 optical LC"}.get(suffix, POSITION_MAPS.get(11, {}).get(positions[10], "UNKNOWN")))},
+            {"parameter": "service_port", "value": POSITION_MAPS.get(13, {}).get(positions[12], "UNKNOWN")},
+            {"parameter": "position16_options", "value": POSITION_MAPS.get(16, {}).get(positions[15], "UNKNOWN")},
+        ]
+    return {
+        "status": "DECODED_WITH_WARNINGS" if unknown or compatibility else "DECODED",
+        "mlfb": normalized,
+        "position_count": 16,
+        "positions": decoded,
+        "comparison_specs": comparison_specs,
+        "protection_variant": {"code": variant_pair, **variant} if variant else {"code": variant_pair, "label": None, "ansi": [], "features": []},
+        "suffix": suffix,
+        "unknown_codes": unknown,
+        "compatibility_issues": compatibility,
+        "source": "Uploaded 7SJ66 1 edited.pdf, Siemens SIPROTEC 7SJ66 selection chart, EA price list December 2023, printed pages 82-85",
+        "limitations": ["This decoder covers the chart codes explicitly transcribed into the POC. Any code not mapped is marked unknown, never silently assumed valid.", "The chart is a configuration/selection source; it does not independently prove that Siemens currently sells or recognizes a complete order number."]
+    }
+
+
 def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) -> dict:
     """Compare chart-decoded specifications with MSLD requirements."""
     if not chart_specs or not msld_specs:
@@ -160,7 +322,9 @@ def health():
 @app.post("/verify")
 def verify(request: VerifyRequest):
     mlfb = request.mlfb.strip().upper().replace("＋", "+")
+    decoded = decode_7sj66_mlfb(mlfb)
     result = lookup_siemens_product(mlfb)
+    result["selection_chart_decode"] = decoded
     result["lookup_build_id"] = LOOKUP_BUILD_ID
     result["diagnostic_expected_url_order"] = ["SiePortal en-in", "SiePortal en-ww", "Industry Mall en/in", "Industry Mall en/en"]
     status = result.get("status")
@@ -185,8 +349,9 @@ def verify(request: VerifyRequest):
     elif search_status == "not_configured":
         result["web_search"]["setup_hint"] = "Add SERPER_API_KEY to the elexora-siemens-poc Render service environment, then redeploy/restart the service."
     official_exact = bool(result.get("exact_mlfb_match")) or bool(result.get("web_search", {}).get("official_exact_mlfb_match_count", 0))
+    chart_specs = {item["parameter"]: item["value"] for item in decoded.get("comparison_specs", [])}
     result["technical_assessment"] = assess_technical_match(
-        request.selection_chart_specs, request.msld_specs, official_exact
+        chart_specs or None, request.msld_specs, official_exact
     )
     result["final_validation_status"] = result["technical_assessment"]["status"]
     result["final_validation_message"] = result["technical_assessment"]["message"]
