@@ -64,3 +64,22 @@ The endpoint returns `technical_assessment.status`:
 - `VERIFIED`: supplied parameters match and exact official Siemens evidence was found.
 
 Important: this first implementation compares supplied chart/MSLD fields; it does **not yet automatically decode every MLFB position from the PDF selection chart or extract specs from an uploaded MSLD**. Do not mark a relay verified unless those two dictionaries were genuinely derived from the chart and MSLD. Search result counts alone never approve or reject an MLFB.
+
+
+## 7SJ66 selection-chart decoder
+
+The POC now returns `selection_chart_decode` from `POST /verify`. It decodes the 16 numbered MLFB positions using the uploaded **7SJ66 1 edited.pdf** (EA Products price list, December 2023, printed pages 82-85), including housing/I/O, CT input, auxiliary voltage, construction/display, region/language, system/service port, protection variant, and position-16 functions. It reports unmapped codes and chart compatibility issues rather than silently assuming a code is valid.
+
+The decoder's `comparison_specs` are a first-pass normalized subset for the technical comparison. The request can still supply `msld_specs`, for example:
+
+```json
+{
+  "mlfb": "7SJ6611-5DB90-1FA0+L0R",
+  "msld_specs": {
+    "ct_secondary": "1A",
+    "protection_variant": "Basic version"
+  }
+}
+```
+
+Important: selection-chart values are the source transcription; exact MSLD value normalization and automated PDF/MSLD extraction are still separate work. For final POC testing, inspect `selection_chart_decode.positions`, `unknown_codes`, `compatibility_issues`, and `technical_assessment` together. A chart decode is not independent proof that a complete MLFB is currently orderable from Siemens.
