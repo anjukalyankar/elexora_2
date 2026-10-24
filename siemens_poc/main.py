@@ -1,7 +1,7 @@
 """Standalone Siemens MLFB lookup POC. Does not import ELEXORA's DB/auth/BOM app."""
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
-from backend.app.siemens_live import lookup_siemens_product
+from backend.app.siemens_live import LOOKUP_BUILD_ID, lookup_siemens_product
 
 app = FastAPI(title="ELEXORA Siemens MLFB Verification POC", version="0.1.0")
 
@@ -10,11 +10,13 @@ class VerifyRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"service": "ELEXORA Siemens MLFB POC", "status": "running", "database_required": False}
+    return {"service": "ELEXORA Siemens MLFB POC", "status": "running", "database_required": False, "lookup_build_id": LOOKUP_BUILD_ID}
 
 @app.post("/verify")
 def verify(request: VerifyRequest):
     result = lookup_siemens_product(request.mlfb)
+    result["lookup_build_id"] = LOOKUP_BUILD_ID
+    result["diagnostic_expected_url_order"] = ["SiePortal en-in", "SiePortal en-ww", "Industry Mall en/in", "Industry Mall en/en"]
     status = result.get("status")
     if status == "product_page_found":
         result["warning"] = False
