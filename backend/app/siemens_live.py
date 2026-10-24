@@ -13,7 +13,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 import re
 
-LOOKUP_BUILD_ID = "siemens-live-lookup-2026-10-25-b"
+LOOKUP_BUILD_ID = "siemens-live-lookup-2026-10-25-c"
 
 
 class _VisibleText(HTMLParser):
@@ -21,20 +21,28 @@ class _VisibleText(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.hidden_depth = 0
+        self.script_parts: list[str] = []
+        self.in_script = False
 
     def handle_starttag(self, tag, attrs):
+        if tag == "script":
+            self.in_script = True
         if tag in {"script", "style", "noscript", "svg"}:
             self.hidden_depth += 1
         if tag in {"br", "p", "div", "tr", "td", "th", "li", "h1", "h2", "h3"}:
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
+        if tag == "script":
+            self.in_script = False
         if tag in {"script", "style", "noscript", "svg"} and self.hidden_depth:
             self.hidden_depth -= 1
         if tag in {"p", "div", "tr", "td", "th", "li", "h1", "h2", "h3"}:
             self.parts.append("\n")
 
     def handle_data(self, data):
+        if self.in_script and data.strip():
+            self.script_parts.append(data.strip())
         if not self.hidden_depth and data.strip():
             self.parts.append(data.strip())
 
@@ -49,27 +57,32 @@ def _parse_product_page(html: str) -> dict:
     parser.feed(html)
     text = re.sub(r"[ \t]+", " ", " ".join(parser.parts))
     text = re.sub(r"\n\s*\n+", "\n", text).strip()
+    # Product details may be embedded in JSON-LD or app-state scripts even when
+    # the visible page is only a JavaScript shell. Inspect scripts as evidence,
+    # but still require product fields/MLFB evidence before accepting a match.
+    script_text = " ".join(parser.script_parts)
+    structured_text = text + "\n" + script_text
 
     # Support label variations used by Industry Mall and SiePortal.
     canonical = _first(
         r"(?:Article Number\s*\(Market Facing Number\)|Article number|Order number|MLFB|Product number)\s*:?\s*([A-Z0-9+\- ]+?)(?=Product Description|Product family|Product Lifecycle|Notes|Price data|$)",
-        text,
+        structured_text,
     )
     description = _first(
         r"Product Description\s*:?\s*(.+?)(?=Product family|Product Lifecycle|Notes|Price data|Additional Product Information|Classifications|$)",
-        text,
+        structured_text,
     )
     family = _first(
         r"Product family\s*:?\s*(.+?)(?=Product Lifecycle|Notes|Price data|Additional Product Information|Classifications|$)",
-        text,
+        structured_text,
     )
     lifecycle = _first(
         r"Product Lifecycle\s*\(PLM\)\s*:?\s*([^\n]+?)(?=Notes|Price data|Delivery information|Additional Product Information|Classifications|$)",
-        text,
+        structured_text,
     )
     notes = _first(
         r"Notes\s*:?\s*(.+?)(?=Price data|Delivery information|Additional Product Information|Classifications|$)",
-        text,
+        structured_text,
     )
     return {
         "canonical_mlfb": re.sub(r"\s+", "", canonical).upper() or None,
