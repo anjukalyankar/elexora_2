@@ -66,14 +66,12 @@ POSITION_MAPS = {
         "2": "Port B option code 2 (IEC 60870-5-103/RS485 family)",
         "6": "Port B option code 6; allowed with IEC 61850 Ethernet suffix options",
     },
-    # Chart shows Port C (service port) options 0/2/6, but the extracted MLFB
-    # examples use a fixed/other value in character 13 (e.g. 1FE0). Until the
-    # original chart column alignment is conclusively established, do not assign
-    # Port C meaning directly to raw character 13. Decode this field as pending.
+    # Position 13 is the oscillographic-fault-recording / metering option,
+    # NOT the Port C service interface. Port C is position 12 in the selection
+    # chart. Only codes confirmed by the Siemens catalog are mapped here.
     13: {
-        "0": "Chart Port C code: no service port (column alignment requires confirmation)",
-        "2": "Chart Port C code: DIGSI 4 / modem / RTD unit, electrical RS485 (column alignment requires confirmation)",
-        "6": "Chart Port C code: Ethernet RJ45 for DIGSI/RTD; no IEC 61850 on this service port (column alignment requires confirmation)",
+        "1": "Oscillographic fault recording",
+        "3": "Oscillographic fault recording and Min/Max/Demand metering",
     },
     16: {
         "0": "Without autoreclose, fault locator or synchro-check",
@@ -133,9 +131,7 @@ def decode_7sj66_mlfb(mlfb: str) -> dict:
         else:
             description = POSITION_MAPS.get(position, {}).get(code)
         decoded.append({"position": position, "code": code, "description": description})
-        if position == 13:
-            unknown.append({"position": 13, "code": code, "reason": "Port C chart codes are 0/2/6, but this MLFB character alignment is not confirmed; do not infer service-port type from it."})
-        elif description is None and position not in (14,):
+        if description is None and position not in (14,):
             unknown.append({"position": position, "code": code, "reason": "Code not mapped in uploaded selection chart"})
 
     compatibility = []
@@ -184,7 +180,8 @@ def decode_7sj66_mlfb(mlfb: str) -> dict:
                 (["21FL"] if positions[15] in ("2", "3", "7") else [])
             )},
             {"parameter": "system_port", "value": ({"L0D": "IEC 60870-5-103 RS485", "L0G": "DNP3 RS485", "L0R": "IEC 61850 electrical RJ45", "L0S": "IEC 61850 optical LC", "L2R": "DNP3 + IEC 61850 electrical RJ45", "L2S": "DNP3 + IEC 61850 optical LC"}.get(suffix, POSITION_MAPS.get(11, {}).get(positions[10], "UNKNOWN")))},
-            {"parameter": "service_port", "value": "NOT_CONFIRMED_FROM_POSITION_13_ALIGNMENT"},
+            {"parameter": "oscillographic_recording", "value": POSITION_MAPS.get(13, {}).get(positions[12], "UNKNOWN")},
+            {"parameter": "service_port", "value": ({"0": "No service port", "2": "DIGSI 4 / modem / RTD-box, electrical RS485", "6": "Ethernet RJ45 for DIGSI/RTD-box; no IEC 61850 on this service port"}.get(positions[11], "UNKNOWN"))},
             {"parameter": "position16_options", "value": POSITION_MAPS.get(16, {}).get(positions[15], "UNKNOWN")},
         ]
     return {
