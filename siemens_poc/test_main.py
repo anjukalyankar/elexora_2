@@ -87,6 +87,33 @@ class TestSevenSJ66POC(unittest.TestCase):
         self.assertNotIn("ansi_functions", result["unverified_parameters"])
         self.assertEqual(result["status"], "MLFB_RECONFIRMATION_REQUIRED")
 
+
+    def test_protection_variant_and_position16_are_compared_semantically(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
+        chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
+        chart["ansi_functions"] += ", 25"
+        msld = {"ansi_functions": "25,27,50,50N,51,51N,59,67,67N,74TC"}
+        result = assess_technical_match(chart, msld, False)
+        self.assertEqual(result["deviations"], [])
+        self.assertNotIn("ansi_functions", result["unverified_parameters"])
+        # Missing Siemens exact product-page confirmation must still block approval.
+        self.assertEqual(result["status"], "MLFB_RECONFIRMATION_REQUIRED")
+
+    def test_chart_note_flags_incompatible_position15_sensitive_variant(self):
+        result = decode_7sj66_mlfb("7SJ6611-5DB90-1FD0+L0R")
+        self.assertTrue(any(
+            item["positions"] == "7 and 14-15"
+            for item in result["compatibility_issues"]
+        ))
+
+    def test_service_port_remains_unverified_if_mslD_does_not_specify_it(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
+        chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
+        result = assess_technical_match(
+            chart, {"ansi_functions": "25,27,50,51,67,67N"}, False
+        )
+        self.assertNotIn("service_port", result["unverified_parameters"])
+
     def test_msld_language_is_only_extracted_when_explicit(self):
         result = extract_msld_specs("SIEMENS NUMERICAL PROTECTION RELAY; IEC 61850 RJ45")
         self.assertNotIn("region_language", result)
