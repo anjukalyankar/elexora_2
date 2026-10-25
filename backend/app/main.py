@@ -655,12 +655,23 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    ))
    relay_validation = relay_analysis.get('validation') or {}
    has_mlfb = bool(relay_analysis.get('fields', {}).get('mlfb', {}).get('value'))
-   if not has_mlfb or relay_validation.get('status') in {'mismatch', 'partial'}:
-    spec = source_relay_text or relay_analysis['description']
-    spec_lines = [spec] if spec else []
-   else:
+   has_relay_evidence = bool(re.search(
+    r'\b7SJ66\w*\b|\bNUM(?:ERICAL)?\.?\s+PROT(?:ECTION)?\.?\s+RELAY\b',
+    relay_source, re.IGNORECASE
+   ))
+   # If the MSLD row contains no 7SJ66/relay identification and no MLFB,
+   # do not create a relay BOM line from a weak classification alone.
+   if not has_mlfb and not has_relay_evidence:
+    continue
+   # When an MLFB is extracted, always show the structured description.
+   # Validation errors/warnings stay separate and do not replace BOM details.
+   if has_mlfb:
     spec = relay_analysis['description']
     spec_lines = spec.splitlines()
+   else:
+    # Keep source text only when the MSLD actually identifies a relay.
+    spec = source_relay_text
+    spec_lines = [spec] if spec else []
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
