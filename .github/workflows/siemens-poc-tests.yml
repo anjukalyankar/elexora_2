@@ -1,0 +1,18 @@
+name: Siemens POC regression tests
+
+on:
+  push:
+    branches:
+      - poc/siemens-live-mlfb-lookup
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r siemens_poc/requirements.txt
+      - run: python -m unittest siemens_poc.test_main -v

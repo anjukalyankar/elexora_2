@@ -18,6 +18,7 @@ import hmac
 from fastapi import HTTPException, Depends, Header
 from pydantic import BaseModel
 from .relay_nlp import analyze_7sj66
+from .siemens_live import lookup_siemens_product
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
@@ -966,6 +967,17 @@ async def preview_multiple(
         conn.commit()
     return result
 
+
+
+
+class SiemensLookupRequest(BaseModel):
+    mlfb: str
+
+
+@app.post('/api/siemens/product-lookup')
+def siemens_product_lookup(payload: SiemensLookupRequest, user: str = Depends(current_user)):
+    """POC: live lookup of a supplied 7SJ66 MLFB on Siemens Industry Mall."""
+    return lookup_siemens_product(payload.mlfb)
 
 @app.get('/api/admin/bom-history')
 def admin_bom_history(user: str = Depends(require_admin)):
