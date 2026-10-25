@@ -39,6 +39,31 @@ class TestSevenSJ66POC(unittest.TestCase):
         self.assertEqual(result["status"], "DEVIATION_FOUND")
         self.assertEqual(result["deviations"][0]["parameter"], "ct_secondary")
 
+
+    def test_real_msld_sample_extracts_ct_and_aux_supply(self):
+        result = extract_msld_specs(
+            "7SJ66 SIEMENS MAKE NUM. PROT. RELAY; RATED INPUT AT 50Hz: "
+            "CT SEC OF 1A; RATED AUX VOLTAGE: 110V DC; HARDWARE: "
+            "3 O/C & 1 E/F, 4CT, 4VT, 16BI+7BO; SUITABLE FOR FLUSH MOUNTING; "
+            "COMMUNICATION LANGUAGE: ENGLISH; WITH IEC 61850 PROTOCOL, RJ45 CONNECTOR; "
+            "PROT: 50,50N,51,51N,67,67N,74TC,27,59,25; "
+            "MLFB NO.: 7SJ6611-5DB90-1FG4+L0R"
+        )
+        self.assertEqual(result.get("ct_secondary"), "1A")
+        self.assertIn("110", result.get("auxiliary_supply", ""))
+
+    def test_chart_hardware_and_position16_ansi_capability_match(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
+        chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
+        chart["ansi_functions"] += ", 25"
+        msld = {
+            "hardware_io": "1/3 19-inch housing; 16 BI, 7 BO; 4xV, 4xI",
+            "ansi_functions": "25,27,50,50N,51,51N,59,67,67N,74TC",
+        }
+        result = assess_technical_match(chart, msld, False)
+        self.assertEqual(result["deviations"], [])
+        self.assertNotIn("hardware_io", result["unverified_parameters"])
+
     def test_missing_specs_require_reconfirmation(self):
         result = assess_technical_match({"ct_secondary": "1A"}, None, False)
         self.assertEqual(result["status"], "MLFB_RECONFIRMATION_REQUIRED")
