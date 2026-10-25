@@ -269,8 +269,13 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
             need, have = ansi_codes(required), ansi_codes(available)
             matches = need.issubset(have) if need else True
         elif key == "region_language":
+            # MSLD usually states only the required language, while the chart
+            # value includes region/frequency and says the language is changeable.
             language_tokens = ("ENGLISH", "SPANISH", "RUSSIAN")
-            matches = any(token in left and token in right for token in language_tokens)
+            chart_languages = [token for token in language_tokens if token in left]
+            requested_languages = [token for token in language_tokens if token in right]
+            matches = bool(chart_languages and requested_languages and
+                           set(chart_languages).intersection(requested_languages))
         elif key == "system_port":
             matches = "IEC 61850" in left and "IEC 61850" in right
             if matches and ("RJ45" in right or "ELECTRICAL" in right):
