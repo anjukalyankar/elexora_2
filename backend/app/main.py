@@ -655,16 +655,22 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    ))
    relay_validation = relay_analysis.get('validation') or {}
    has_mlfb = bool(relay_analysis.get('fields', {}).get('mlfb', {}).get('value'))
-   # Always show the structured 7SJ66 description in BOM Preview when an MLFB
-   # is present. Verification status belongs in the warning/check list; it must
-   # not replace the BOM description with raw extracted MSLD text.
+   has_relay_evidence = bool(re.search(
+    r'\b7SJ66\w*\b|\bNUM(?:ERICAL)?\.?\s+PROT(?:ECTION)?\.?\s+RELAY\b',
+    relay_source, re.IGNORECASE
+   ))
+   # If the MSLD row contains no 7SJ66/relay identification and no MLFB,
+   # do not create a relay BOM line from a weak classification alone.
+   if not has_mlfb and not has_relay_evidence:
+    continue
+   # When an MLFB is extracted, always show the structured description.
+   # Validation errors/warnings stay separate and do not replace BOM details.
    if has_mlfb:
     spec = relay_analysis['description']
     spec_lines = spec.splitlines()
    else:
-    # If no MLFB was extracted, preserve the source text rather than inventing
-    # a product configuration.
-    spec = source_relay_text or relay_analysis['description']
+    # Keep source text only when the MSLD actually identifies a relay.
+    spec = source_relay_text
     spec_lines = [spec] if spec else []
    editable_fields=[]
    editable_indices=[]
