@@ -215,11 +215,11 @@ def extract_msld_specs(text: str | None) -> dict:
         specs["system_port"] = "IEC 61850 electrical RJ45"
     elif "IEC 61850" in t and ("LC" in t or "OPTICAL" in t):
         specs["system_port"] = "IEC 61850 optical LC"
-    if re.search(r"\\b(?:COMMUNICATION\\s+)?LANGUAGE\\s*[:=]?\\s*ENGLISH\\b", t):
+    if re.search(r"\b(?:COMMUNICATION\s+)?LANGUAGE\s*[:=]?\s*ENGLISH\b", t):
         specs["region_language"] = "English"
-    elif re.search(r"\\b(?:COMMUNICATION\\s+)?LANGUAGE\\s*[:=]?\\s*SPANISH\\b", t):
+    elif re.search(r"\b(?:COMMUNICATION\s+)?LANGUAGE\s*[:=]?\s*SPANISH\b", t):
         specs["region_language"] = "Spanish"
-    elif re.search(r"\\b(?:COMMUNICATION\\s+)?LANGUAGE\\s*[:=]?\\s*RUSSIAN\\b", t):
+    elif re.search(r"\b(?:COMMUNICATION\s+)?LANGUAGE\s*[:=]?\s*RUSSIAN\b", t):
         specs["region_language"] = "Russian"
     ansi = sorted(set(re.findall(r"\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\b", t)))
     if ansi:
