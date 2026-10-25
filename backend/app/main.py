@@ -655,12 +655,17 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    ))
    relay_validation = relay_analysis.get('validation') or {}
    has_mlfb = bool(relay_analysis.get('fields', {}).get('mlfb', {}).get('value'))
-   if not has_mlfb or relay_validation.get('status') in {'mismatch', 'partial'}:
-    spec = source_relay_text or relay_analysis['description']
-    spec_lines = [spec] if spec else []
-   else:
+   # Always show the structured 7SJ66 description in BOM Preview when an MLFB
+   # is present. Verification status belongs in the warning/check list; it must
+   # not replace the BOM description with raw extracted MSLD text.
+   if has_mlfb:
     spec = relay_analysis['description']
     spec_lines = spec.splitlines()
+   else:
+    # If no MLFB was extracted, preserve the source text rather than inventing
+    # a product configuration.
+    spec = source_relay_text or relay_analysis['description']
+    spec_lines = [spec] if spec else []
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
