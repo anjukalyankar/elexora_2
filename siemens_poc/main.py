@@ -269,7 +269,8 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
             need, have = ansi_codes(required), ansi_codes(available)
             matches = need.issubset(have) if need else True
         elif key == "region_language":
-            matches = bool(right) and right in left
+            language_tokens = ("ENGLISH", "SPANISH", "RUSSIAN")
+            matches = any(token in left and token in right for token in language_tokens)
         elif key == "system_port":
             matches = "IEC 61850" in left and "IEC 61850" in right
             if matches and ("RJ45" in right or "ELECTRICAL" in right):
