@@ -110,7 +110,8 @@ class TestSevenSJ66POC(unittest.TestCase):
         chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
         pos13 = next(item for item in decoded["positions"] if item["position"] == 13)
         self.assertEqual(pos13["description"], "Oscillographic fault recording")
-        self.assertEqual(chart["service_port"], "IEC 61850 electrical RJ45")
+        self.assertEqual(chart["service_port"], "No service port")
+        self.assertTrue(any(item["parameter"] == "system_port" and "IEC 61850" in item["value"] for item in chart.values() if isinstance(item, dict)))
         self.assertEqual(chart["oscillographic_recording"], "Oscillographic fault recording")
         self.assertFalse(any(item["position"] == 13 for item in decoded["unknown_codes"]))
 
