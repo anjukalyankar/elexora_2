@@ -269,21 +269,13 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
             need, have = ansi_codes(required), ansi_codes(available)
             matches = need.issubset(have) if need else True
         elif key == "region_language":
-            # MSLD usually states only the required language, while the chart
-            # value includes region/frequency and says the language is changeable.
-            # Compare normalized language names, not the full chart sentence.
-            language_aliases = {
-                "ENGLISH": ("ENGLISH",),
-                "SPANISH": ("SPANISH",),
-                "RUSSIAN": ("RUSSIAN",),
-            }
+            # Chart may say "English (changeable)" while MSLD says "English".
             chart_text = str(available).upper()
             requested_text = str(required).upper()
-            chart_language = next((name for name, aliases in language_aliases.items()
-                                   if any(alias in chart_text for alias in aliases)), None)
-            requested_language = next((name for name, aliases in language_aliases.items()
-                                       if any(alias in requested_text for alias in aliases)), None)
-            matches = bool(chart_language and requested_language and chart_language == requested_language)
+            languages = ("ENGLISH", "SPANISH", "RUSSIAN", "FRENCH", "GERMAN")
+            chart_language = next((lang for lang in languages if lang in chart_text), None)
+            requested_language = next((lang for lang in languages if lang in requested_text), None)
+            matches = chart_language is not None and chart_language == requested_language
         elif key == "system_port":
             matches = "IEC 61850" in left and "IEC 61850" in right
             if matches and ("RJ45" in right or "ELECTRICAL" in right):
