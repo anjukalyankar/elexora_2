@@ -277,11 +277,13 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
                 "SPANISH": ("SPANISH",),
                 "RUSSIAN": ("RUSSIAN",),
             }
+            chart_text = str(available).upper()
+            requested_text = str(required).upper()
             chart_language = next((name for name, aliases in language_aliases.items()
-                                   if any(alias in left for alias in aliases)), None)
+                                   if any(alias in chart_text for alias in aliases)), None)
             requested_language = next((name for name, aliases in language_aliases.items()
-                                       if any(alias in right for alias in aliases)), None)
-            matches = chart_language is not None and chart_language == requested_language
+                                       if any(alias in requested_text for alias in aliases)), None)
+            matches = bool(chart_language and requested_language and chart_language == requested_language)
         elif key == "system_port":
             matches = "IEC 61850" in left and "IEC 61850" in right
             if matches and ("RJ45" in right or "ELECTRICAL" in right):
