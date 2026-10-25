@@ -103,7 +103,7 @@ def lookup_siemens_product(mlfb: str, timeout_seconds: float = 10.0) -> dict:
     """Try SiePortal product-detail pages, then legacy Industry Mall routes."""
     normalized = re.sub(r"\s+", "", (mlfb or "").upper()).replace("＋", "+")
     if not re.fullmatch(
-        r"7SJ66[A-Z0-9]{2}-[A-Z0-9]{5}-[A-Z0-9]{4}(?:[-+]L(?:0D|0G|0R|0S|2R|2S))?",
+        r"7SJ66[A-Z0-9]{2}-[A-Z0-9]{5}-[A-Z0-9]{4}(?:[-+]?(?:L(?:0D|0G|0R|0S|2R|2S)))?",
         normalized,
     ):
         return {
