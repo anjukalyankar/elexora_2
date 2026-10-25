@@ -176,7 +176,13 @@ def decode_7sj66_mlfb(mlfb: str) -> dict:
             {"parameter": "mounting_display", "value": POSITION_MAPS.get(9, {}).get(positions[8], "UNKNOWN")},
             {"parameter": "region_language", "value": POSITION_MAPS.get(10, {}).get(positions[9], "UNKNOWN")},
             {"parameter": "protection_variant", "value": (variant or {}).get("label", "UNKNOWN")},
-            {"parameter": "ansi_functions", "value": ", ".join((variant or {}).get("ansi", []))},
+            # Include independently selected position-16 functions in the capability comparison.
+            {"parameter": "ansi_functions", "value": ", ".join(
+                list((variant or {}).get("ansi", [])) +
+                (["25"] if positions[15] in ("4", "7") else []) +
+                (["79"] if positions[15] in ("1", "3", "7") else []) +
+                (["21FL"] if positions[15] in ("2", "3", "7") else [])
+            )},
             {"parameter": "system_port", "value": ({"L0D": "IEC 60870-5-103 RS485", "L0G": "DNP3 RS485", "L0R": "IEC 61850 electrical RJ45", "L0S": "IEC 61850 optical LC", "L2R": "DNP3 + IEC 61850 electrical RJ45", "L2S": "DNP3 + IEC 61850 optical LC"}.get(suffix, POSITION_MAPS.get(11, {}).get(positions[10], "UNKNOWN")))},
             {"parameter": "service_port", "value": "NOT_CONFIRMED_FROM_POSITION_13_ALIGNMENT"},
             {"parameter": "position16_options", "value": POSITION_MAPS.get(16, {}).get(positions[15], "UNKNOWN")},
