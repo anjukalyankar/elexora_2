@@ -55,7 +55,6 @@ class TestSevenSJ66POC(unittest.TestCase):
     def test_chart_hardware_and_position16_ansi_capability_match(self):
         decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
         chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
-        chart["ansi_functions"] += ", 25"
         msld = {
             "hardware_io": "1/3 19-inch housing; 16 BI, 7 BO; 4xV, 4xI",
             "ansi_functions": "25,27,50,50N,51,51N,59,67,67N,74TC",
@@ -117,6 +116,24 @@ class TestSevenSJ66POC(unittest.TestCase):
     def test_msld_language_is_only_extracted_when_explicit(self):
         result = extract_msld_specs("SIEMENS NUMERICAL PROTECTION RELAY; IEC 61850 RJ45")
         self.assertNotIn("region_language", result)
+
+    def test_position16_function_is_added_to_decoded_ansi_capabilities(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
+        chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
+        self.assertIn("25", chart["ansi_functions"])
+        result = assess_technical_match(
+            chart, {"ansi_functions": "25,27,50,50N,51,51N,59,67,67N,74TC"}, False
+        )
+        self.assertEqual(result["deviations"], [])
+        self.assertNotIn("ansi_functions", result["unverified_parameters"])
+
+    def test_position16_options_are_not_assumed_when_not_selected(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG0+L0R")
+        chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
+        self.assertNotIn("25", chart["ansi_functions"])
+        result = assess_technical_match(chart, {"ansi_functions": "25"}, False)
+        self.assertEqual(result["status"], "DEVIATION_FOUND")
+        self.assertEqual(result["deviations"][0]["parameter"], "ansi_functions")
 
 
 if __name__ == "__main__":
