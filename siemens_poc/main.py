@@ -200,14 +200,14 @@ def extract_msld_specs(text: str | None) -> dict:
         return {}
     t = re.sub(r"\s+", " ", text).upper()
     specs = {}
-    if re.search(r"\bCT\s*(?:SEC(?:ONDARY)?)?\s*[:=]?\s*1\s*A\b|\bIPH\s*[:=]?\s*1\s*A\b", t):
+    if re.search(r"\bCT\s*(?:SEC(?:ONDARY)?)?\s*(?:[:=]|OF)?\s*1\s*A\b|\bIPH\s*[:=]?\s*1\s*A\b", t):
         specs["ct_secondary"] = "1A"
-    elif re.search(r"\bCT\s*(?:SEC(?:ONDARY)?)?\s*[:=]?\s*5\s*A\b|\bIPH\s*[:=]?\s*5\s*A\b", t):
+    elif re.search(r"\bCT\s*(?:SEC(?:ONDARY)?)?\s*(?:[:=]|OF)?\s*5\s*A\b|\bIPH\s*[:=]?\s*5\s*A\b", t):
         specs["ct_secondary"] = "5A"
-    supply = re.search(r"\b(?:AUX(?:ILIARY)?(?:\s+SUPPLY)?|SUPPLY)\s*[:=]?\s*(24\s*[-–]?\s*48\s*V\s*DC|110\s*V\s*DC|220\s*V\s*DC|110\s*[-–]?\s*250\s*V(?:\s*DC)?|110\s*[-–]?\s*250\s*V\s*/\s*115\s*[-–]?\s*230\s*V\s*AC\s*/\s*DC)", t)
+    supply = re.search(r"\b(?:RATED\s+)?(?:AUX(?:ILIARY)?(?:\s+VOLTAGE|\s+SUPPLY)?|SUPPLY)\s*[:=]?\s*(24\s*[-–]?\s*48\s*V\s*DC|110\s*V\s*DC|220\s*V\s*DC|110\s*[-–]?\s*250\s*V(?:\s*DC)?|110\s*[-–]?\s*250\s*V\s*/\s*115\s*[-–]?\s*230\s*V\s*AC\s*/\s*DC)", t)
     if supply:
         specs["auxiliary_supply"] = re.sub(r"\s+", " ", supply.group(1)).strip()
-    if "16BI" in t and "7BO" in t and "4CT" in t and ("4VT" in t or "4V" in t):
+    if "16BI" in t and "7BO" in t and (("4CT" in t and ("4VT" in t or "4V" in t)) or ("4X V" in t and "4X I" in t) or ("4XV" in t and "4XI" in t)):
         specs["hardware_io"] = "1/3 19-inch housing; 16 BI, 7 BO; 4xV, 4xI"
     if re.search(r"\bFLUSH\s+MOUNT(?:ING)?\b", t):
         specs["mounting_display"] = "Flush mounting"
@@ -257,11 +257,21 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
             chart_codes = set(re.findall(r"\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\b", left))
             if "FA BASIC" in left:
                 chart_codes.update({"50", "51", "50N", "51N", "74TC"})
+            # Position 16 independently adds optional functions (e.g. code 4 => ANSI 25).
+            pos16 = next((item.get("code") for item in []), None)
+            # chart value can be augmented by verify() with decoded position-16 options.
             matches = msld_codes.issubset(chart_codes) if msld_codes else True
         elif key == "hardware_io":
-            has_chart_inputs = "4XV" in left and "4XI" in left
-            has_msld_inputs = "4CT" in right and ("4VT" in right or "4V" in right)
-            matches = has_chart_inputs and has_msld_inputs and ("16 BI" in left and "16BI" in right) and ("7 BO" in left and "7BO" in right)
+            # The chart describes voltage/current inputs as 4xV, 4xI;
+            # MSLD drawings often label the same channels as 4VT, 4CT.
+            chart_norm = re.sub(r"[^A-Z0-9]", "", left)
+            msld_norm = re.sub(r"[^A-Z0-9]", "", right)
+            has_chart_inputs = "4XV" in chart_norm and "4XI" in chart_norm
+            has_msld_inputs = ("4CT" in msld_norm or "4XI" in msld_norm) and ("4VT" in msld_norm or "4XV" in msld_norm or "4V" in msld_norm)
+            inputs_match = has_chart_inputs and has_msld_inputs
+            counts_match = ("16BI" in chart_norm and "16BI" in msld_norm and "7BO" in chart_norm and "7BO" in msld_norm)
+            housing_match = ("13" in chart_norm and "13" in msld_norm) or ("19INCHHOUSING" in chart_norm and "19INCHHOUSING" in msld_norm)
+            matches = inputs_match and counts_match and housing_match
         if not matches:
             deviations.append({"parameter": key, "selection_chart_value": chart[key], "msld_value": msld[key]})
 
@@ -360,6 +370,8 @@ def search_web(mlfb: str, timeout_seconds: float = 15.0) -> dict:
         "official_siemens_result_count": sum(official(item) for item in combined),
         "exact_mlfb_match_count": len(exact_matches),
         "official_exact_mlfb_match_count": len(official_exact_matches),
+        "distinct_domain_count": len({item.get("domain") for item in combined if item.get("domain")}),
+        "distinct_domains": sorted({item.get("domain") for item in combined if item.get("domain")}),
         "exact_mlfb_matches": exact_matches[:10],
         "results": combined[:20], "errors": query_errors,
         "verification_note": "Exact-match counts mean the MLFB text appears in the search result title/snippet/URL (separators such as + and spaces are normalized). This is search evidence only, not proof of product validity or technical compatibility.",
@@ -413,6 +425,20 @@ def verify(request: VerifyRequest):
     extracted_msld_specs = request.msld_specs or extract_msld_specs(request.msld_text)
     result["msld_extracted_specs"] = extracted_msld_specs
     result["msld_extraction_note"] = "Conservative text extraction; only explicitly recognized values are compared. Review extracted values against the source MSLD." if request.msld_text else "Pass msld_text (OCR/extracted MSLD text) or msld_specs to run technical comparison."
+    # Position 16 options are separate from the protection-variant code. Add their
+    # explicit ANSI capabilities before comparing the MSLD requirement set.
+    for item in decoded.get("comparison_specs", []):
+        if item.get("parameter") == "position16_options":
+            option_text = str(item.get("value", ""))
+            extra = []
+            if "Synchro-check (25)" in option_text:
+                extra.append("25")
+            if "Autoreclose (79)" in option_text:
+                extra.append("79")
+            if "Fault locator (21FL)" in option_text:
+                extra.append("21FL")
+            if extra and "ansi_functions" in chart_specs:
+                chart_specs["ansi_functions"] = str(chart_specs["ansi_functions"]) + ", " + ", ".join(extra)
     result["technical_assessment"] = assess_technical_match(
         chart_specs or None, extracted_msld_specs or None, official_exact
     )
