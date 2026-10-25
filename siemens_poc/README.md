@@ -68,7 +68,7 @@ Important: this first implementation compares supplied chart/MSLD fields; it doe
 
 ## 7SJ66 selection-chart decoder
 
-The POC now returns `selection_chart_decode` from `POST /verify`. It decodes the 16 numbered MLFB positions using the uploaded **7SJ66 1 edited.pdf** (EA Products price list, December 2023, printed pages 82-85), including housing/I/O, CT input, auxiliary voltage, construction/display, region/language, system/service port, protection variant, and position-16 functions. It reports unmapped codes and chart compatibility issues rather than silently assuming a code is valid.
+The POC now returns `selection_chart_decode` from `POST /verify`. It decodes the 16 numbered MLFB positions using the uploaded **7SJ66 1 edited.pdf** (EA Products price list, December 2023, printed pages 82-85), including housing/I/O, CT input, auxiliary voltage, construction/display, region/language, position-12 Port B/service-port option, position-13 oscillographic recording option, protection variant, and position-16 functions. It reports unmapped codes and chart compatibility issues rather than silently assuming a code is valid. Position 13 is treated as the oscillographic-recording option; it is not used to infer the service-port type. Service-port interpretation is taken from position 12 and the suffix.
 
 The decoder's `comparison_specs` are a first-pass normalized subset for the technical comparison. The request can still supply `msld_specs`, for example:
 
