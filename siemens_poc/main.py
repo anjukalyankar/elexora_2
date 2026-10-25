@@ -501,6 +501,12 @@ def assess_technical_match(chart_specs, msld_specs, official_exact_match: bool) 
                 matches = any(v in right for v in ("24V DC", "48V DC", "24 V DC", "48 V DC"))
         elif key == "mounting_display":
             matches = ("FLUSH MOUNTING" in left and "FLUSH MOUNTING" in right)
+        elif key == "region_language":
+            # "English (changeable)" in the chart satisfies an MSLD asking for "English".
+            languages = ("ENGLISH", "SPANISH", "RUSSIAN", "FRENCH", "GERMAN")
+            chart_language = next((lang for lang in languages if lang in left), None)
+            msld_language = next((lang for lang in languages if lang in right), None)
+            matches = chart_language is not None and chart_language == msld_language
         elif key == "ansi_functions":
             # A variant's chart feature list is a capability set, not a list that must all be used.
             msld_codes = set(re.findall(r"\b(?:50N?|51N?|27|59|74TC|67N?|67NS|87N|81U/O|32|25|79|21FL)\b", right))
