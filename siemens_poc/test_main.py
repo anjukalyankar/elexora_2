@@ -9,7 +9,7 @@ class TestSevenSJ66POC(unittest.TestCase):
         self.assertEqual(result["mlfb"], "7SJ6611-5EB90-1FE0-L0R")
         self.assertEqual(result["position_count"], 16)
         self.assertEqual(result["protection_variant"]["code"], "FE")
-        self.assertTrue(any(item["position"] == 13 for item in result["unknown_codes"]))
+        self.assertEqual(next(item for item in result["positions"] if item["position"] == 13)["description"], "Oscillographic fault recording")
 
     def test_decode_plus_suffix(self):
         result = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
@@ -105,13 +105,21 @@ class TestSevenSJ66POC(unittest.TestCase):
             for item in result["compatibility_issues"]
         ))
 
-    def test_service_port_remains_unverified_if_mslD_does_not_specify_it(self):
+    def test_position13_and_position12_are_decoded_as_distinct_fields(self):
         decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
         chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
-        result = assess_technical_match(
-            chart, {"ansi_functions": "25,27,50,51,67,67N"}, False
-        )
-        self.assertNotIn("service_port", result["unverified_parameters"])
+        pos13 = next(item for item in decoded["positions"] if item["position"] == 13)
+        self.assertEqual(pos13["description"], "Oscillographic fault recording")
+        self.assertEqual(chart["service_port"], "Port B option code 0; required for L0R/L0S suffix options")
+        self.assertEqual(chart["oscillographic_recording"], "Oscillographic fault recording")
+        self.assertFalse(any(item["position"] == 13 for item in decoded["unknown_codes"]))
+
+    def test_unknown_position13_code_stays_unverified(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
+        self.assertTrue(any(
+            item["position"] == 13 and item["code"] == "9"
+            for item in decode_7sj66_mlfb("7SJ6611-5DB90-9FG4+L0R")["unknown_codes"]
+        ))
 
     def test_msld_language_is_only_extracted_when_explicit(self):
         result = extract_msld_specs("SIEMENS NUMERICAL PROTECTION RELAY; IEC 61850 RJ45")
