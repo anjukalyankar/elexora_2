@@ -435,7 +435,31 @@ def verify(request: VerifyRequest):
         result["web_search"]["setup_hint"] = "Add SERPER_API_KEY to the elexora-siemens-poc Render service environment, then redeploy/restart the service."
     # Only a parsed canonical MLFB from a Siemens product page counts as independent
     # product confirmation; search-result snippets are discovery evidence, not approval.
-    official_exact = status == "product_page_found" and bool(result.get("exact_mlfb_match"))
+    # A readable live product page is strongest evidence. When Siemens serves only a
+    # JavaScript shell, accept an exact official-domain search result as corroborating
+    # evidence, but label the verification scope honestly rather than claiming page parsing.
+    web_evidence = result.get("web_search") or {}
+    official_exact = (
+        (status == "product_page_found" and bool(result.get("exact_mlfb_match")))
+        or any(
+            item.get("is_official_siemens_domain") and item.get("exact_mlfb_mentioned")
+            for item in web_evidence.get("exact_mlfb_matches", [])
+        )
+    )
+    result["official_mlfb_evidence"] = {
+        "status": "official_exact_search_match" if (
+            status != "product_page_found" and official_exact
+        ) else ("official_product_page_match" if official_exact else "not_confirmed"),
+        "is_direct_product_page_confirmation": status == "product_page_found" and bool(result.get("exact_mlfb_match")),
+        "official_exact_search_match_count": web_evidence.get("official_exact_mlfb_match_count", 0),
+        "note": (
+            "Exact MLFB was found in official Siemens search-result text; direct product-page parsing was unavailable. Treat as strong corroborating evidence, not a parsed live-page confirmation."
+            if status != "product_page_found" and official_exact
+            else "Direct official product-page confirmation was not established."
+            if not official_exact
+            else "Exact MLFB was parsed from an official Siemens product page."
+        ),
+    }
     chart_specs = request.selection_chart_specs or {item["parameter"]: item["value"] for item in decoded.get("comparison_specs", [])}
     extracted_msld_specs = request.msld_specs or extract_msld_specs(request.msld_text)
     result["msld_extracted_specs"] = extracted_msld_specs
