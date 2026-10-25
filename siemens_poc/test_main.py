@@ -68,6 +68,29 @@ class TestSevenSJ66POC(unittest.TestCase):
         result = assess_technical_match({"ct_secondary": "1A"}, None, False)
         self.assertEqual(result["status"], "MLFB_RECONFIRMATION_REQUIRED")
 
+    def test_target_msld_has_no_false_hardware_or_ansi_deviation(self):
+        decoded = decode_7sj66_mlfb("7SJ6611-5DB90-1FG4+L0R")
+        chart = {item["parameter"]: item["value"] for item in decoded["comparison_specs"]}
+        chart["ansi_functions"] += ", 25"
+        msld = extract_msld_specs(
+            "7SJ66 SIEMENS MAKE NUM. PROT. RELAY; RATED INPUT AT 50Hz: "
+            "CT SEC OF 1A; RATED AUX VOLTAGE: 110V DC; HARDWARE: "
+            "3 O/C & 1 E/F, 4CT, 4VT, 16BI+7BO; SUITABLE FOR FLUSH MOUNTING; "
+            "COMMUNICATION LANGUAGE: ENGLISH; WITH IEC 61850 PROTOCOL, RJ45 CONNECTOR; "
+            "PROT: 50,50N,51,51N,67,67N,74TC,27,59,25; "
+            "MLFB NO.: 7SJ6611-5DB90-1FG4+L0R"
+        )
+        result = assess_technical_match(chart, msld, False)
+        self.assertEqual(msld.get("region_language"), "English")
+        self.assertEqual(result["deviations"], [])
+        self.assertNotIn("hardware_io", result["unverified_parameters"])
+        self.assertNotIn("ansi_functions", result["unverified_parameters"])
+        self.assertEqual(result["status"], "MLFB_RECONFIRMATION_REQUIRED")
+
+    def test_msld_language_is_only_extracted_when_explicit(self):
+        result = extract_msld_specs("SIEMENS NUMERICAL PROTECTION RELAY; IEC 61850 RJ45")
+        self.assertNotIn("region_language", result)
+
 
 if __name__ == "__main__":
     unittest.main()
