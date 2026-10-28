@@ -39,14 +39,23 @@ function BomDocument({bom,onEdit}){const h=bom.header||{},rows=bom.rows||[],feed
 function App(){const[user,setUser]=useState(()=>localStorage.getItem('elexora_user')),[form,setForm]=useState({client:'',sales_ref:'',drawing:'',esd:'',wo:'',voltage:''}),[mslds,setMslds]=useState([]),[dis,setDis]=useState(null),[bom,setBom]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[mismatch,setMismatch]=useState(null),[skipCheck,setSkipCheck]=useState(false),[history,setHistory]=useState(null),[historyLoading,setHistoryLoading]=useState(false);if(!user)return <Login onLogin={setUser}/>;async function generate(skipValidation=false){if(!mslds.length||!dis){setError('Please upload at least one MSLD PDF and one common DIS PDF.');return}if(!form.client.trim()||!form.wo.trim()||!form.voltage.trim()){setError('Please enter Customer Name, Work Order No. and Voltage.');return}setLoading(true);setError('');try{const token=localStorage.getItem('elexora_token');const checkForm=new FormData();mslds.forEach(file=>checkForm.append('mslds',file));checkForm.append('dis',dis);checkForm.append('client',form.client);checkForm.append('wo',form.wo);checkForm.append('voltage',form.voltage);const check=(skipCheck||skipValidation)?null:await fetch(API+'/api/bom/check-customers',{method:'POST',headers:{Authorization:'Bearer '+token},body:checkForm});if(!skipCheck&&!skipValidation){if(!check.ok){let detail='';try{const d=await check.json();detail=typeof d.detail==='string'?d.detail:JSON.stringify(d)}catch{}throw Error('Could not verify MSLD/DIS details (HTTP '+check.status+'). '+detail)}const checkData=await check.json();
 const checkedMslds=checkData.mslds||[],checkedDis=checkData.dis||{};
 const normalizeCheck=(v,kind)=>{let x=String(v||'').trim().toLowerCase().replace(/\\s+/g,' ');if(kind==='voltage')x=x.replace(/\\s*k?v\\b/g,'').replace(/\\s+/g,'');return x};
-const verificationMessages=[...(checkData.mismatches||[])];
+const verificationMessages=[];
 const compareField=(label,kind,entered,values)=>{
- const known=values.map(v=>String(v||'').trim()).filter(Boolean);
- if(known.some(v=>normalizeCheck(v,kind)!==normalizeCheck(entered,kind)))verificationMessages.push(label+' differs between entered details and uploaded PDFs.');
+ const named=[['Entered details',entered],...values];
+ const known=named.filter(([source,value])=>String(value||'').trim());
+ const normalized=known.map(([,value])=>normalizeCheck(value,kind));
+ if(new Set(normalized).size>1){
+  const details=known.map(([source,value])=>source+': "'+String(value).trim()+'"').join(' vs ');
+  verificationMessages.push(label+' mismatch — '+details+'.');
+ }
 };
-compareField('Customer name','customer',form.client,[...checkedMslds.map(x=>x.customer),checkedDis.customer]);
-compareField('Work order number','workorder',form.wo,[...checkedMslds.map(x=>x.work_order),checkedDis.work_order]);
-compareField('Voltage','voltage',form.voltage,[...checkedMslds.map(x=>x.voltage),checkedDis.voltage]);
+compareField('Customer name','customer',form.client,[['MSLD',checkedMslds.map(x=>x.customer).filter(Boolean).join(' / ')],['DIS',checkedDis.customer]]);
+compareField('Work order number','workorder',form.wo,[['MSLD',checkedMslds.map(x=>x.work_order).filter(Boolean).join(' / ')],['DIS',checkedDis.work_order]]);
+compareField('Voltage','voltage',form.voltage,[['MSLD',checkedMslds.map(x=>x.voltage).filter(Boolean).join(' / ')],['DIS',checkedDis.voltage]]);
+// Keep only one precise warning per field; don't repeat generic backend messages.
+for(const message of (checkData.mismatches||[])){
+ if(!/customer name|work order number|voltage/i.test(message))verificationMessages.push(message);
+}
 checkedMslds.forEach(item=>{
  if(!item.customer)verificationMessages.push('Customer name could not be read from MSLD: '+(item.filename||'PDF')+'.');
  if(!item.work_order)verificationMessages.push('Work order number could not be read from MSLD: '+(item.filename||'PDF')+'.');
