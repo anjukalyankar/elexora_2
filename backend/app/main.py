@@ -737,7 +737,16 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec_lines=ct_spec(ct_row_text,dis_text)
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
-   editable_indices=[8,14]
+   # Core count changes the position of the SUITABLE FOR line. Resolve
+   # editable positions from their actual labels so 3-core CTs never mark
+   # the SUITABLE FOR row as editable by mistake.
+   editable_indices = []
+   for editable_label in editable_fields:
+    target = editable_label.split(' ON P2 SIDE')[0]
+    line_index = next((idx for idx, line in enumerate(spec_lines)
+                       if target in line), None)
+    if line_index is not None:
+     editable_indices.append(line_index)
   elif r['master_code']=='PT':
    pt_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=pt_spec(pt_row_text, msld_text, dis_text)
