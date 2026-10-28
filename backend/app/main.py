@@ -539,7 +539,7 @@ def extract_annexure_make(dis_text, equipment):
         if re.search(kind, row, re.IGNORECASE):
             m = re.search(
                 r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*'
-                r'([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)',
+                r'([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)*)',
                 row, re.IGNORECASE
             )
             if m:
@@ -550,7 +550,7 @@ def extract_annexure_make(dis_text, equipment):
     for match in matches:
         window = section[max(0, match.start()-100):min(len(section), match.end()+180)]
         patterns = [
-            r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)',
+            r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)*)',
             r'\b(PRAGATI\s*/\s*ECS|PRAGATI)\b',
         ]
         for pattern in patterns:
@@ -568,11 +568,11 @@ def extract_ct_make(dis_text):
     # "CT MAKE: PRAGATI", or "MAKE OF CT: PRAGATI". Do not depend on one
     # exact PDF text layout.
     patterns = [
-        r'\b(PRAGATI\s*/\s*ECS)\s+MAKE\b',
-        r'\b(PRAGATI\s*/\s*ECS)\b',
+        r'\b(PRAGATI(?:\s*/\s*[A-Z][A-Z0-9.&\-]*)+)\s+MAKE\b',
+        r'\b(PRAGATI(?:\s*/\s*[A-Z][A-Z0-9.&\-]*)+)\b',
         r'\b(PRAGATI)\s+MAKE\b',
-        r'(?:CT\s*/?\s*MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
-        r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)?)',
+        r'(?:CT\s*/?\s*MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)*)',
+        r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)*)',
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.IGNORECASE)
