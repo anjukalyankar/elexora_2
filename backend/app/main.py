@@ -584,6 +584,73 @@ def extract_panel_suitability(dis_text):
         return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
     return ''
 
+def extract_pt_core_lines(pt_text):
+    """Extract PT core ratio, VA and accuracy details from the MSLD row."""
+    text = clean_value(pt_text)
+    labeled = re.findall(
+        r'CORE\\s*(\\d+)\\s*:\\s*(.*?)(?=\\s+CORE\\s*\\d+\\s*:|$)',
+        text, re.IGNORECASE
+    )
+    if labeled:
+        return [clean_value(value).rstrip(' ,;') for _, value in sorted(labeled, key=lambda item: int(item[0])) if clean_value(value)]
+    # Some fixed-template exports contain the core data without the CORE N labels.
+    # Only accept explicit PT ratio / VA / class groups, not arbitrary numeric text.
+    ratio = r'\\d+(?:\\.\\d+)?\\s*kV\\s*/\\s*(?:√|\\bSQRT\\b)?\\s*3\\s*/\\s*\\d+(?:\\.\\d+)?\\s*/\\s*(?:√|\\bSQRT\\b)?\\s*3'
+    matches = re.findall(
+        rf'({ratio}\\s*,?\\s*\\d+(?:\\.\\d+)?\\s*VA\\s*,?\\s*CL\\.?\\s*:?\\s*[A-Z0-9.]+)',
+        text, re.IGNORECASE
+    )
+    return [clean_value(value) for value in matches]
+
+
+def extract_pt_fuse_rating(msld_text, dis_text):
+    text = clean_value((msld_text or '') + ' ' + (dis_text or ''))
+    patterns = [
+        r'(?:IN[- ]?BUILT\\s+)?PRIMARY\\s+FUSE(?:\\s+OF|\\s+RATING)?\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*A\\b',
+        r'FUSE\\s+(?:RATING|CURRENT)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*A\\b',
+    ]
+    for pattern in patterns:
+        value = first_match(pattern, text)
+        if value:
+            return f'{value}A'
+    return ''
+
+
+def pt_spec(pt_text, msld_text, dis_text):
+    """Format PT equipment using its own fixed BOM structure; CT handling stays unchanged."""
+    rated_voltage = extract_rated_voltage(dis_text)
+    if not rated_voltage:
+        rated_voltage = first_match(r'\\b(?:PT\\s*)?([0-9]+(?:\\.[0-9]+)?\\s*kV)\\b', pt_text)
+        rated_voltage = re.sub(r'\\s+', '', rated_voltage)
+    make = extract_ct_make(dis_text)
+    if not make:
+        make = first_match(r'\\b([A-Z][A-Z0-9.&/-]*(?:\\s*/\\s*[A-Z][A-Z0-9.&/-]*)?)\\s+MAKE\\b', clean_value(dis_text))
+        make = re.sub(r'\\s*/\\s*', '/', make)
+    fuse = extract_pt_fuse_rating(pt_text, dis_text)
+    cores = extract_pt_core_lines(pt_text)
+    core_count = len(cores) or 3
+    core_word = {1: 'SINGLE', 2: 'TWO', 3: 'THREE'}.get(core_count, str(core_count))
+    lines = [
+        f'PT {rated_voltage}' if rated_voltage else 'PT',
+        f'{make.upper()} MAKE' if make else 'MAKE',
+        'POTENTIAL TRANSFORMERS IN CAST RESIN EPOXY CASE (DRAWOUT TYPE)',
+        f'- SINGLE PHASE WITH IN BUILT PRIMARY FUSE OF {fuse}' if fuse else '- SINGLE PHASE WITH IN BUILT PRIMARY FUSE OF',
+        f'{core_word} CORE PT, AS PER IS/IEC STANDARD',
+        'AS GIVEN BELOW:-',
+    ]
+    for index, value in enumerate(cores, 1):
+        lines.append(f'- CORE {index}: {value}')
+    # These are fixed project-standard PT lines from the supplied format.
+    lines.extend([
+        '- RATED FREQUENCY: 50Hz',
+        '- VF: 1.2COUNT/1.9 FOR 8 HOURS',
+        '- BIL: 7.2/20/60kvp',
+        'INSULATION CLASS:- B',
+        'SUITABLE FOR 8BK80 (OD) - 800mm WIDTH PANEL',
+    ])
+    return lines
+
+
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
     ct_make=extract_ct_make(dis_text)
@@ -631,6 +698,12 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
    editable_indices=[8,14]
+  elif r['master_code']=='PT':
+   pt_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
+   spec_lines=pt_spec(pt_row_text, msld_text, dis_text)
+   spec='\\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='MCB':
    mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
    if mcb_item:
