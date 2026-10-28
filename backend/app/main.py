@@ -1037,23 +1037,28 @@ async def check_msld_customers(
     dis_name = dis.filename or 'DIS.pdf'
     dis_header = extract_header_from_page(dis_bytes, dis_name)
     dis_text = pdf_text(dis_bytes, dis_name)
-    # DIS footer uses labels such as "Client :- IGL Ghorakpur" and
-    # "W.O. : 3008829250" (without the word "No."). Prefer text-label
-    # extraction over the MSLD-specific fixed coordinate bands.
-    customer_match = re.search(
-        r'\bClient\s*[:\-]*\s*(.*?)(?=\bSales\s*Ref\b|\bProject\s*[:\-]|\bW\.?\s*O\.?\s*[:\-]|\bItem\s*No\b|\bQty\s*[:\-]|$)',
-        dis_text, re.IGNORECASE | re.DOTALL
-    )
-    dis_customer = clean_value(customer_match.group(1)).strip(' :-') if customer_match else ''
-    # Never let a neighbouring footer column leak into the customer value.
-    dis_customer = re.split(r'\bSales\s*Ref\b|\bProject\s*[:\-]|\bW\.?\s*O\.?\s*[:\-]|\bItem\s*No\b|\bQty\s*[:\-]', dis_customer, flags=re.IGNORECASE)[0].strip(' :-')
+    # DIS is a two-column footer table. Parse the Client/W.O. values from
+    # words on the same visual row, stopping before the right-hand columns.
+    dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
+    def footer_value(label_pattern, stop_pattern=None, max_x=None):
+        labels = [w for w in dis_words if re.fullmatch(label_pattern, w['text'], re.IGNORECASE)]
+        for label_word in labels:
+            row = sorted([w for w in dis_words if abs(w['y'] - label_word['y']) <= 4 and w['x'] > label_word['x']], key=lambda w:w['x'])
+            picked=[]
+            for word in row:
+                if max_x is not None and word['x'] >= max_x: break
+                if stop_pattern and re.search(stop_pattern, word['text'], re.IGNORECASE): break
+                if re.fullmatch(r'[:\-]+', word['text']): continue
+                picked.append(word['text'])
+            value=clean_value(' '.join(picked)).strip(' :-')
+            if value: return value
+        return ''
+    sales_words = [w for w in dis_words if re.search(r'Sales', w['text'], re.IGNORECASE)]
+    sales_x = min((w['x'] for w in sales_words), default=None)
+    dis_customer = footer_value(r'Client', max_x=sales_x)
     if not dis_customer:
-        customer_match = re.search(r'\bCustomer\s*Name\s*[:\-]*\s*(.*?)(?=\bSales\s*Ref\b|\bW\.?\s*O\.?\s*[:\-]|$)', dis_text, re.IGNORECASE | re.DOTALL)
-        dis_customer = clean_value(customer_match.group(1)).strip(' :-') if customer_match else ''
-    if not dis_customer:
-        fallback_customer = clean_value(dis_header.get('client', '')).strip(' :-')
-        dis_customer = '' if re.search(r'\bSales\s*Ref\b', fallback_customer, re.IGNORECASE) else fallback_customer
-    dis_wo = first(r'W\.?\s*O\.?\s*(?:No\.?)?\s*[:\-]\s*([^\n]+?)(?=\s+Item\s*No\b|\s+Qty\b|$)', dis_text).strip(' :-')
+        dis_customer = footer_value(r'Customer')
+    dis_wo = footer_value(r'W\.?O\.?', stop_pattern=r'Item|Qty')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
