@@ -585,21 +585,24 @@ def extract_panel_suitability(dis_text):
     return ''
 
 def extract_pt_core_lines(pt_text):
-    """Extract numbered PT core ratios, burdens and accuracy classes from MSLD."""
+    """Extract only each PT core's ratio, burden and accuracy class; never absorb adjacent MSLD equipment."""
     text = clean_value(pt_text)
-    labeled = re.findall(
-        r'CORE\s*(\d+)\s*:\s*(.*?)(?=[,;]?\s*CORE\s*\d+\s*:|$)',
+    # The PT core table is followed by other equipment rows in flattened PDF text.
+    # Extract bounded engineering tokens instead of consuming everything until the next CORE label.
+    core_matches = re.findall(
+        r'(?:\b(?:CORE\s*\d+\s*:\s*)?)'
+        r'((?:\d+(?:\.\d+)?\s*kV\s*/\s*(?:√|\bSQRT\b)?\s*3\s*/\s*'
+        r'\d+(?:\.\d+)?\s*/\s*(?:√|\bSQRT\b)?\s*3\s*,?\s*)?'
+        r'\d+(?:\.\d+)?\s*VA\s*,?\s*CL\.?\s*-?\s*[A-Z0-9.]+)',
         text, re.IGNORECASE
     )
-    if labeled:
-        return [clean_value(value).rstrip(' ,;') for _, value in sorted(labeled, key=lambda item: int(item[0])) if clean_value(value)]
-    # Fallback for descriptions where core labels are omitted.
-    ratio = r'\d+(?:\.\d+)?\s*kV\s*/\s*(?:√|\bSQRT\b)?\s*3\s*/\s*\d+(?:\.\d+)?\s*/\s*(?:√|\bSQRT\b)?\s*3'
-    matches = re.findall(
-        rf'({ratio}\s*,?\s*\d+(?:\.\d+)?\s*VA\s*,?\s*CL\.?\s*:?\s*[A-Z0-9.]+)',
-        text, re.IGNORECASE
-    )
-    return [clean_value(value) for value in matches]
+    result = []
+    for value in core_matches:
+        value = clean_value(value).rstrip(' ,;')
+        if value and value not in result:
+            result.append(value)
+    return result
+
 
 
 def extract_pt_fuse_rating(msld_text, dis_text):
