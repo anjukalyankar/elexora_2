@@ -585,16 +585,15 @@ def extract_panel_suitability(dis_text):
     return ''
 
 def extract_pt_core_lines(pt_text):
-    """Extract PT core ratio, VA and accuracy details from the MSLD row."""
+    """Extract numbered PT core ratios, burdens and accuracy classes from MSLD."""
     text = clean_value(pt_text)
     labeled = re.findall(
-        r'CORE\s*(\d+)\s*:\s*(.*?)(?=\s+CORE\s*\d+\s*:|r'CORE\\s*(\\d+)\\s*:\\s*(.*?)(?=[,;]?\\s*CORE\\s*\\d+\\s*:|$)',
+        r'CORE\s*(\d+)\s*:\s*(.*?)(?=[,;]?\s*CORE\s*\d+\s*:|$)',
         text, re.IGNORECASE
     )
     if labeled:
         return [clean_value(value).rstrip(' ,;') for _, value in sorted(labeled, key=lambda item: int(item[0])) if clean_value(value)]
-    # Some fixed-template exports contain the core data without the CORE N labels.
-    # Only accept explicit PT ratio / VA / class groups, not arbitrary numeric text.
+    # Fallback for descriptions where core labels are omitted.
     ratio = r'\d+(?:\.\d+)?\s*kV\s*/\s*(?:√|\bSQRT\b)?\s*3\s*/\s*\d+(?:\.\d+)?\s*/\s*(?:√|\bSQRT\b)?\s*3'
     matches = re.findall(
         rf'({ratio}\s*,?\s*\d+(?:\.\d+)?\s*VA\s*,?\s*CL\.?\s*:?\s*[A-Z0-9.]+)',
@@ -640,7 +639,6 @@ def pt_spec(pt_text, msld_text, dis_text):
     ]
     for index, value in enumerate(cores, 1):
         lines.append(f'- CORE {index}: {value}')
-    # These are fixed project-standard PT lines from the supplied format.
     lines.extend([
         '- RATED FREQUENCY: 50Hz',
         '- VF: 1.2COUNT/1.9 FOR 8 HOURS',
