@@ -1025,18 +1025,27 @@ async def check_msld_customers(
         filename = upload.filename or 'MSLD.pdf'
         extracted = extract_header_from_page(data, filename)
         source_text = pdf_text(data, filename)
-        customer = clean_value(extracted.get('client', ''))
+        customer = clean_value(extracted.get('client', '')).strip(' :-')
         if not customer:
-            customer = first(r'Client\s*:?[ \t]*([^\n]+)', source_text) or first(r'Customer\s*Name\s*:?[ \t]*([^\n]+)', source_text)
-        work_order = clean_value(extracted.get('wo', '')) or first(r'W\.?O\.?\s*No\.?\s*:?[ \t]*([^\n]+)', source_text)
+            customer = first(r'Client\s*[:\-]*\s*([^\n]+)', source_text).strip(' :-') or first(r'Customer\s*Name\s*[:\-]*\s*([^\n]+)', source_text).strip(' :-')
+        work_order = clean_value(extracted.get('wo', '')).strip(' :-')
+        if not work_order:
+            work_order = first(r'W\.?\s*O\.?\s*(?:No\.?)?\s*[:\-]\s*([^\n]+)', source_text).strip(' :-')
         voltage_match = first(r'\b(6\.6|11|33)\s*k?V\b', source_text)
         results.append({'filename': filename, 'customer': clean_value(customer), 'work_order': clean_value(work_order), 'voltage': clean_value(voltage_match)})
     dis_bytes = await dis.read()
     dis_name = dis.filename or 'DIS.pdf'
     dis_header = extract_header_from_page(dis_bytes, dis_name)
     dis_text = pdf_text(dis_bytes, dis_name)
-    dis_customer = clean_value(dis_header.get('client', '')) or first(r'Client\s*:?[ \t]*([^\n]+)', dis_text) or first(r'Customer\s*Name\s*:?[ \t]*([^\n]+)', dis_text)
-    dis_wo = clean_value(dis_header.get('wo', '')) or first(r'W\.?O\.?\s*No\.?\s*:?[ \t]*([^\n]+)', dis_text)
+    # DIS footer uses labels such as "Client :- IGL Ghorakpur" and
+    # "W.O. : 3008829250" (without the word "No."). Prefer text-label
+    # extraction over the MSLD-specific fixed coordinate bands.
+    dis_customer = first(r'Client\s*[:\-]*\s*([^\n]+?)(?=\s+Sales\s*Ref\b|\s+Project\s*[:\-]|$)', dis_text).strip(' :-')
+    if not dis_customer:
+        dis_customer = first(r'Customer\s*Name\s*[:\-]*\s*([^\n]+)', dis_text).strip(' :-') or clean_value(dis_header.get('client', '')).strip(' :-')
+    dis_wo = first(r'W\.?\s*O\.?\s*(?:No\.?)?\s*[:\-]\s*([^\n]+?)(?=\s+Item\s*No\b|\s+Qty\b|$)', dis_text).strip(' :-')
+    if not dis_wo:
+        dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
     def distinct(values):
         return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
