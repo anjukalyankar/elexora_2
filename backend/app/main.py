@@ -522,6 +522,46 @@ def dis_field(dis_text, code, label=''):
     m = re.search(pattern, text, re.IGNORECASE)
     return clean_value(m.group(1)) if m else ''
 
+def extract_annexure_make(dis_text, equipment):
+    """Read CT/PT make from Annexure 1 in the DIS text."""
+    text = dis_search_text(dis_text)
+    # Limit the search to Annexure 1 so unrelated manufacturer names in the
+    # DIS equipment schedule cannot be mistaken for the CT/PT make.
+    section_match = re.search(
+        r'ANNEXURE\s*[-:]?\s*1\b(.*?)(?=ANNEXURE\s*[-:]?\s*[2-9]\b|$)',
+        text, re.IGNORECASE
+    )
+    section = section_match.group(1) if section_match else text
+    kind = r'\b(?:CT|CURRENT\s+TRANSFORMER)\b' if equipment.upper() == 'CT' else r'\b(?:PT|POTENTIAL\s+TRANSFORMER)\b'
+    # Prefer a line/row that explicitly associates the equipment type with a make.
+    for row in re.split(r'[\n|;]+', (dis_text or '')):
+        row = clean_value(row)
+        if re.search(kind, row, re.IGNORECASE):
+            m = re.search(
+                r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*'
+                r'([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)',
+                row, re.IGNORECASE
+            )
+            if m:
+                return re.sub(r'\s*/\s*', '/', m.group(1)).upper()
+    # Flattened table fallback: inspect a small window around CT/PT mentions,
+    # accepting common make labels but avoiding arbitrary adjacent equipment names.
+    matches = list(re.finditer(kind, section, re.IGNORECASE))
+    for match in matches:
+        window = section[max(0, match.start()-100):min(len(section), match.end()+180)]
+        patterns = [
+            r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)',
+            r'\b(PRAGATI\s*/\s*ECS|PRAGATI)\b',
+        ]
+        for pattern in patterns:
+            found = re.search(pattern, window, re.IGNORECASE)
+            if found:
+                value = re.sub(r'\s*/\s*', '/', clean_value(found.group(1)))
+                if value.upper() not in {'CT', 'PT', 'MAKE', 'OF', 'ANNEXURE'}:
+                    return value.upper()
+    return ''
+
+
 def extract_ct_make(dis_text):
     text = dis_search_text(dis_text)
     # Fixed DIS make may appear as "PRAGATI MAKE", "PRAGATI/ECS MAKE",
@@ -651,7 +691,7 @@ def pt_spec(pt_text, msld_text, dis_text):
         rated_voltage = first_match(r'\b([0-9]+(?:\.[0-9]+)?\s*kV)\b', source)
         rated_voltage = re.sub(r'\s+', '', rated_voltage)
     # PT make is sourced from DIS.
-    make = extract_ct_make(dis_text)
+    make = extract_annexure_make(dis_text, 'PT') or extract_ct_make(dis_text)
     if not make:
         dis_source = dis_search_text(dis_text)
         make = first_match(r'(?:Manufacturer(?:\s+name)?|Make\s+of\s+(?:PT|potential\s+transformer))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)', dis_source)
@@ -695,10 +735,8 @@ def pt_spec(pt_text, msld_text, dis_text):
 
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
-    ct_make=extract_ct_make(dis_text)
-    # Annexure-2/master-data make for the fixed CT template. If the PDF
-    # extraction does not expose the Annexure-2 table text, retain the
-    # approved CT master value so the BOM does not lose the MAKE line.
+    ct_make=extract_annexure_make(dis_text, 'CT') or extract_ct_make(dis_text)
+    # Retain the legacy default only if Annexure 1 and the DIS text expose no CT make.
     if not ct_make:
         ct_make = 'PRAGATI/ECS'
     ct_description=build_ct_description(ct_text)
