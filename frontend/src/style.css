@@ -117,3 +117,6 @@ button:disabled{opacity:.62;cursor:wait}
 .loginbox button{width:100%}
 @media(max-width:760px){header{height:auto;min-height:72px;flex-wrap:wrap;padding:16px 18px;gap:10px}.brand{font-size:21px}.tag{flex:1 1 100%;order:3}.admin-button{margin-left:auto}main{padding:22px 14px 40px}.hero{padding:25px 22px;border-radius:18px}.card{padding:20px;border-radius:16px}.grid{grid-template-columns:1fr!important}.uploads{grid-template-columns:1fr!important}.bomhead{align-items:flex-start;flex-direction:column}.export-actions{width:100%}.export-actions button{flex:1}.warning-modal{padding:22px!important}}
 
+
+/* Restore login hierarchy: ELEXORA brand prominent, action heading secondary. */
+.loginbox .brand.dark{display:block;font-size:32px;line-height:1.15;font-weight:800;letter-spacing:2.5px;margin-bottom:18px;color:#10243e}.loginbox h1{font-size:22px;line-height:1.25;font-weight:700;margin:12px 0 18px}
