@@ -616,21 +616,28 @@ def extract_pt_fuse_rating(msld_text, dis_text):
 
 
 def extract_pt_panel_suitability(msld_text):
-    """Read PT panel suitability from the MSLD bottom 'WORK:' note."""
-    text = re.sub(r'\s+', ' ', msld_text or '').strip()
-    patterns = [
-        r'\bWORK\s*:\s*(.*?)(?=\s{2,}|$)',
-        r'\bWORK\s*[-:]\s*(.*?)(?=\s+(?:DRAWING|SHEET|PAGE)\b|$)',
-        r'\bSUITABLE\s+FOR\s+(.+?)(?=\s+(?:DRAWING|SHEET|PAGE)\b|$)',
-    ]
-    for pattern in patterns:
-        value = first_match(pattern, text)
-        if not value:
-            continue
-        value = clean_value(value).strip(' :-')
+    """Extract panel suitability from the MSLD bottom line following WORK:."""
+    raw = (msld_text or '').replace('\r', '\n')
+    lines = [clean_value(line) for line in raw.split('\n') if clean_value(line)]
+    # Prefer the actual WORK line at the bottom of the drawing/text extraction.
+    for line in reversed(lines):
+        match = re.search(r'\bWORK\s*:\s*(.+)$', line, re.IGNORECASE)
+        if match:
+            value = clean_value(match.group(1)).strip(' :-')
+            if value and not re.fullmatch(r'WORK', value, re.IGNORECASE):
+                return value.upper()
+    # Fallback for flattened PDF text where WORK and its value are adjacent.
+    text = clean_value(raw)
+    match = re.search(
+        r'\bWORK\s*:\s*(.+?)(?=\s+(?:DRAWING\s+NO|DRG\.?\s*NO|SHEET|PAGE|DATE)\b|$)',
+        text, re.IGNORECASE
+    )
+    if match:
+        value = clean_value(match.group(1)).strip(' :-')
         if value:
             return value.upper()
     return ''
+
 
 
 def pt_spec(pt_text, msld_text, dis_text):
@@ -643,7 +650,10 @@ def pt_spec(pt_text, msld_text, dis_text):
     # PT make is sourced from DIS.
     make = extract_ct_make(dis_text)
     if not make:
-        make = first_match(r'\b([A-Z][A-Z0-9.&/-]*(?:\s*/\s*[A-Z][A-Z0-9.&/-]*)?)\s+MAKE\b', clean_value(dis_text))
+        dis_source = dis_search_text(dis_text)
+        make = first_match(r'(?:Manufacturer(?:\s+name)?|Make\s+of\s+(?:PT|potential\s+transformer))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)', dis_source)
+        if not make:
+            make = first_match(r'\b([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)\s+MAKE\b', dis_source)
         make = re.sub(r'\s*/\s*', '/', make)
     # Preserve transformer type from MSLD when it is present.
     transformer_type = first_match(
@@ -653,7 +663,7 @@ def pt_spec(pt_text, msld_text, dis_text):
     if not transformer_type:
         transformer_type = 'POTENTIAL TRANSFORMERS IN CAST RESIN EPOXY CASE (DRAWOUT TYPE)'
     transformer_type = clean_value(transformer_type).upper()
-    cores = extract_pt_core_lines(pt_text)
+    cores = extract_pt_core_lines(pt_text) or extract_pt_core_lines(msld_text)
     core_count = len(cores) or 3
     core_word = {1: 'SINGLE', 2: 'TWO', 3: 'THREE'}.get(core_count, str(core_count))
     frequency = extract_frequency(dis_text)
