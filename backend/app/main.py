@@ -1040,9 +1040,19 @@ async def check_msld_customers(
     # DIS footer uses labels such as "Client :- IGL Ghorakpur" and
     # "W.O. : 3008829250" (without the word "No."). Prefer text-label
     # extraction over the MSLD-specific fixed coordinate bands.
-    dis_customer = first(r'Client\s*[:\-]*\s*([^\n]+?)(?=\s+Sales\s*Ref\b|\s+Project\s*[:\-]|$)', dis_text).strip(' :-')
+    customer_match = re.search(
+        r'\bClient\s*[:\-]*\s*(.*?)(?=\bSales\s*Ref\b|\bProject\s*[:\-]|\bW\.?\s*O\.?\s*[:\-]|\bItem\s*No\b|\bQty\s*[:\-]|$)',
+        dis_text, re.IGNORECASE | re.DOTALL
+    )
+    dis_customer = clean_value(customer_match.group(1)).strip(' :-') if customer_match else ''
+    # Never let a neighbouring footer column leak into the customer value.
+    dis_customer = re.split(r'\bSales\s*Ref\b|\bProject\s*[:\-]|\bW\.?\s*O\.?\s*[:\-]|\bItem\s*No\b|\bQty\s*[:\-]', dis_customer, flags=re.IGNORECASE)[0].strip(' :-')
     if not dis_customer:
-        dis_customer = first(r'Customer\s*Name\s*[:\-]*\s*([^\n]+)', dis_text).strip(' :-') or clean_value(dis_header.get('client', '')).strip(' :-')
+        customer_match = re.search(r'\bCustomer\s*Name\s*[:\-]*\s*(.*?)(?=\bSales\s*Ref\b|\bW\.?\s*O\.?\s*[:\-]|$)', dis_text, re.IGNORECASE | re.DOTALL)
+        dis_customer = clean_value(customer_match.group(1)).strip(' :-') if customer_match else ''
+    if not dis_customer:
+        fallback_customer = clean_value(dis_header.get('client', '')).strip(' :-')
+        dis_customer = '' if re.search(r'\bSales\s*Ref\b', fallback_customer, re.IGNORECASE) else fallback_customer
     dis_wo = first(r'W\.?\s*O\.?\s*(?:No\.?)?\s*[:\-]\s*([^\n]+?)(?=\s+Item\s*No\b|\s+Qty\b|$)', dis_text).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
