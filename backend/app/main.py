@@ -523,43 +523,46 @@ def dis_field(dis_text, code, label=''):
     return clean_value(m.group(1)) if m else ''
 
 def extract_annexure_make(dis_text, equipment):
-    """Read CT/PT make from Annexure 1 in the DIS text."""
+    """Extract the equipment-specific make from DIS Annexure 1, including OCR variants."""
     text = dis_search_text(dis_text)
-    # Limit the search to Annexure 1 so unrelated manufacturer names in the
-    # DIS equipment schedule cannot be mistaken for the CT/PT make.
     section_match = re.search(
         r'ANNEXURE\s*[-:]?\s*1\b(.*?)(?=ANNEXURE\s*[-:]?\s*[2-9]\b|$)',
-        text, re.IGNORECASE
+        text, re.IGNORECASE | re.DOTALL
     )
     section = section_match.group(1) if section_match else text
-    kind = r'\b(?:CT|CURRENT\s+TRANSFORMER)\b' if equipment.upper() == 'CT' else r'\b(?:PT|POTENTIAL\s+TRANSFORMER)\b'
-    # Prefer a line/row that explicitly associates the equipment type with a make.
-    for row in re.split(r'[\n|;]+', (dis_text or '')):
+    equipment = equipment.upper()
+    # OCR/PDF extraction may drop slashes or spaces around the make components.
+    # CT uses PRAGATI/ECS; PT uses PRAGATI/NPT in Annexure 1.
+    suffix = 'ECS' if equipment == 'CT' else 'NPT'
+    compound = re.compile(
+        rf'\bPRAGATI\s*(?:[/|\\\-]\s*|\s+)?{suffix}\b',
+        re.IGNORECASE
+    )
+    match = compound.search(section)
+    if match:
+        return f'PRAGATI/{suffix}'
+    # If the Annexure is extracted as table text, make may be on the same row
+    # as the equipment label, not necessarily on a separate newline.
+    kind = r'\b(?:CT|CURRENT\s+TRANSFORMER)\b' if equipment == 'CT' else r'\b(?:PT|POTENTIAL\s+TRANSFORMER)\b'
+    for row in re.split(r'[\n|;]+', section):
         row = clean_value(row)
-        if re.search(kind, row, re.IGNORECASE):
-            m = re.search(
-                r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*'
-                r'([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)*)',
-                row, re.IGNORECASE
-            )
-            if m:
-                return re.sub(r'\s*/\s*', '/', m.group(1)).upper()
-    # Flattened table fallback: inspect a small window around CT/PT mentions,
-    # accepting common make labels but avoiding arbitrary adjacent equipment names.
-    matches = list(re.finditer(kind, section, re.IGNORECASE))
-    for match in matches:
-        window = section[max(0, match.start()-100):min(len(section), match.end()+180)]
-        patterns = [
-            r'(?:MAKE|MANUFACTURER|MAKE\s+OF\s+(?:CT|PT))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)*)',
-            r'\b(PRAGATI\s*/\s*ECS|PRAGATI)\b',
-        ]
-        for pattern in patterns:
-            found = re.search(pattern, window, re.IGNORECASE)
-            if found:
-                value = re.sub(r'\s*/\s*', '/', clean_value(found.group(1)))
-                if value.upper() not in {'CT', 'PT', 'MAKE', 'OF', 'ANNEXURE'}:
-                    return value.upper()
+        if not re.search(kind, row, re.IGNORECASE):
+            continue
+        match = compound.search(row)
+        if match:
+            return f'PRAGATI/{suffix}'
+        labeled = re.search(
+            r'(?:MAKE|MANUFACTURER)\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)*)',
+            row, re.IGNORECASE
+        )
+        if labeled:
+            value = re.sub(r'\s*/\s*', '/', clean_value(labeled.group(1))).upper()
+            if value not in {'CT', 'PT', 'MAKE', 'MANUFACTURER'}:
+                return value
+    # Do not return the partial PRAGATI match here; the caller can try its
+    # general fallback only after the complete equipment-specific make fails.
     return ''
+
 
 
 def extract_ct_make(dis_text):
