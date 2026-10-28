@@ -116,3 +116,6 @@ button:disabled{opacity:.62;cursor:wait}
 .loginbox .brand{color:#123858}
 .loginbox button{width:100%}
 @media(max-width:760px){header{height:auto;min-height:72px;flex-wrap:wrap;padding:16px 18px;gap:10px}.brand{font-size:21px}.tag{flex:1 1 100%;order:3}.admin-button{margin-left:auto}main{padding:22px 14px 40px}.hero{padding:25px 22px;border-radius:18px}.card{padding:20px;border-radius:16px}.grid{grid-template-columns:1fr!important}.uploads{grid-template-columns:1fr!important}.bomhead{align-items:flex-start;flex-direction:column}.export-actions{width:100%}.export-actions button{flex:1}.warning-modal{padding:22px!important}}
+
+/* Compact single verification dialog */
+.compact-warning{width:min(480px,calc(100vw - 28px));padding:20px;max-height:calc(100vh - 32px);border-radius:14px}.compact-warning .modal-icon{width:32px;height:32px;font-size:19px}.compact-warning h2{font-size:19px;margin:9px 0 5px}.compact-warning p{font-size:13px;margin:7px 0 10px}.compact-warning .modal-warning{padding:8px 10px;margin:6px 0;font-size:12px}.compact-warning .modal-detail{padding:9px 0;font-size:12px;gap:4px}.compact-warning .modal-actions{margin-top:14px}.more-mismatches{font-size:12px;color:#64748b;margin:4px 0}
