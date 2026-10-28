@@ -768,13 +768,10 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    ))
    relay_validation = relay_analysis.get('validation') or {}
    has_mlfb = bool(relay_analysis.get('fields', {}).get('mlfb', {}).get('value'))
-   has_relay_evidence = bool(re.search(
-    r'\b7SJ66\w*\b|\bNUM(?:ERICAL)?\.?\s+PROT(?:ECTION)?\.?\s+RELAY\b',
-    relay_source, re.IGNORECASE
-   ))
-   # If the MSLD row contains no 7SJ66/relay identification and no MLFB,
-   # do not create a relay BOM line from a weak classification alone.
-   if not has_mlfb and not has_relay_evidence:
+   # Only validate/report a missing MLFB when this MSLD row explicitly
+   # identifies a 7SJ66 relay. A generic numerical-relay label is not enough.
+   has_7sj66_evidence = bool(re.search(r'\b7SJ66\w*\b', relay_source, re.IGNORECASE))
+   if not has_mlfb and not has_7sj66_evidence:
     continue
    # When an MLFB is extracted, always show the structured description.
    # Validation errors/warnings stay separate and do not replace BOM details.
