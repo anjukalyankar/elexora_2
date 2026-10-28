@@ -523,7 +523,7 @@ def dis_field(dis_text, code, label=''):
     return clean_value(m.group(1)) if m else ''
 
 def extract_annexure_make(dis_text, equipment):
-    """Extract the equipment-specific make from DIS Annexure 1, including OCR variants."""
+    """Read the actual CT/PT make from DIS Annexure 1; recognized makes are ECS, NPT and PRAGATI."""
     text = dis_search_text(dis_text)
     section_match = re.search(
         r'ANNEXURE\s*[-:]?\s*1\b(.*?)(?=ANNEXURE\s*[-:]?\s*[2-9]\b|$)',
@@ -531,36 +531,37 @@ def extract_annexure_make(dis_text, equipment):
     )
     section = section_match.group(1) if section_match else text
     equipment = equipment.upper()
-    # OCR/PDF extraction may drop slashes or spaces around the make components.
-    # CT uses PRAGATI/ECS; PT uses PRAGATI/NPT in Annexure 1.
-    suffix = 'ECS' if equipment == 'CT' else 'NPT'
-    compound = re.compile(
-        rf'\bPRAGATI\s*(?:[/|\\\-]\s*|\s+)?{suffix}\b',
-        re.IGNORECASE
-    )
-    match = compound.search(section)
-    if match:
-        return f'PRAGATI/{suffix}'
-    # If the Annexure is extracted as table text, make may be on the same row
-    # as the equipment label, not necessarily on a separate newline.
+    # These are independent make names, not a combined "PRAGATI/ECS" or "PRAGATI/NPT".
+    make_list = ['ECS', 'NPT', 'PRAGATI']
     kind = r'\b(?:CT|CURRENT\s+TRANSFORMER)\b' if equipment == 'CT' else r'\b(?:PT|POTENTIAL\s+TRANSFORMER)\b'
+
+    # First inspect explicit equipment-specific labels in Annexure 1.
     for row in re.split(r'[\n|;]+', section):
         row = clean_value(row)
         if not re.search(kind, row, re.IGNORECASE):
             continue
-        match = compound.search(row)
-        if match:
-            return f'PRAGATI/{suffix}'
-        labeled = re.search(
-            r'(?:MAKE|MANUFACTURER)\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)*)',
+        label = re.search(
+            r'(?:MAKE|MANUFACTURER)\s*[:=\-]?\s*(.{1,100})',
             row, re.IGNORECASE
         )
-        if labeled:
-            value = re.sub(r'\s*/\s*', '/', clean_value(labeled.group(1))).upper()
-            if value not in {'CT', 'PT', 'MAKE', 'MANUFACTURER'}:
-                return value
-    # Do not return the partial PRAGATI match here; the caller can try its
-    # general fallback only after the complete equipment-specific make fails.
+        search_area = label.group(1) if label else row
+        for make in make_list:
+            if re.search(rf'\b{re.escape(make)}\b', search_area, re.IGNORECASE):
+                return make
+
+    # Flattened table fallback: use the closest equipment mention and return
+    # the actual recognized make name, never prepend another brand.
+    matches = list(re.finditer(kind, section, re.IGNORECASE))
+    for match in matches:
+        window = section[max(0, match.start()-100):min(len(section), match.end()+180)]
+        for make in make_list:
+            if re.search(rf'\b{re.escape(make)}\b', window, re.IGNORECASE):
+                return make
+    # As a final Annexure-level fallback, return a recognized make only if it
+    # is uniquely present; avoid guessing when several makes occur.
+    present = [make for make in make_list if re.search(rf'\b{re.escape(make)}\b', section, re.IGNORECASE)]
+    if len(present) == 1:
+        return present[0]
     return ''
 
 
@@ -741,7 +742,7 @@ def ct_spec(ct_text, dis_text):
     ct_make=extract_annexure_make(dis_text, 'CT') or extract_ct_make(dis_text)
     # Retain the legacy default only if Annexure 1 and the DIS text expose no CT make.
     if not ct_make:
-        ct_make = 'PRAGATI/ECS'
+        ct_make = ''
     ct_description=build_ct_description(ct_text)
     rated_voltage=extract_rated_voltage(dis_text)
     frequency=extract_frequency(dis_text)
