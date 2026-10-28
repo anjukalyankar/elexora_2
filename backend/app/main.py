@@ -588,16 +588,16 @@ def extract_pt_core_lines(pt_text):
     """Extract PT core ratio, VA and accuracy details from the MSLD row."""
     text = clean_value(pt_text)
     labeled = re.findall(
-        r'CORE\\s*(\\d+)\\s*:\\s*(.*?)(?=\\s+CORE\\s*\\d+\\s*:|$)',
+        r'CORE\s*(\d+)\s*:\s*(.*?)(?=\s+CORE\s*\d+\s*:|r'CORE\\s*(\\d+)\\s*:\\s*(.*?)(?=[,;]?\\s*CORE\\s*\\d+\\s*:|$)',
         text, re.IGNORECASE
     )
     if labeled:
         return [clean_value(value).rstrip(' ,;') for _, value in sorted(labeled, key=lambda item: int(item[0])) if clean_value(value)]
     # Some fixed-template exports contain the core data without the CORE N labels.
     # Only accept explicit PT ratio / VA / class groups, not arbitrary numeric text.
-    ratio = r'\\d+(?:\\.\\d+)?\\s*kV\\s*/\\s*(?:√|\\bSQRT\\b)?\\s*3\\s*/\\s*\\d+(?:\\.\\d+)?\\s*/\\s*(?:√|\\bSQRT\\b)?\\s*3'
+    ratio = r'\d+(?:\.\d+)?\s*kV\s*/\s*(?:√|\bSQRT\b)?\s*3\s*/\s*\d+(?:\.\d+)?\s*/\s*(?:√|\bSQRT\b)?\s*3'
     matches = re.findall(
-        rf'({ratio}\\s*,?\\s*\\d+(?:\\.\\d+)?\\s*VA\\s*,?\\s*CL\\.?\\s*:?\\s*[A-Z0-9.]+)',
+        rf'({ratio}\s*,?\s*\d+(?:\.\d+)?\s*VA\s*,?\s*CL\.?\s*:?\s*[A-Z0-9.]+)',
         text, re.IGNORECASE
     )
     return [clean_value(value) for value in matches]
@@ -606,8 +606,8 @@ def extract_pt_core_lines(pt_text):
 def extract_pt_fuse_rating(msld_text, dis_text):
     text = clean_value((msld_text or '') + ' ' + (dis_text or ''))
     patterns = [
-        r'(?:IN[- ]?BUILT\\s+)?PRIMARY\\s+FUSE(?:\\s+OF|\\s+RATING)?\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*A\\b',
-        r'FUSE\\s+(?:RATING|CURRENT)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*A\\b',
+        r'(?:IN[- ]?BUILT\s+)?PRIMARY\s+FUSE(?:\s+OF|\s+RATING)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*A\b',
+        r'FUSE\s+(?:RATING|CURRENT)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*A\b',
     ]
     for pattern in patterns:
         value = first_match(pattern, text)
@@ -620,12 +620,12 @@ def pt_spec(pt_text, msld_text, dis_text):
     """Format PT equipment using its own fixed BOM structure; CT handling stays unchanged."""
     rated_voltage = extract_rated_voltage(dis_text)
     if not rated_voltage:
-        rated_voltage = first_match(r'\\b(?:PT\\s*)?([0-9]+(?:\\.[0-9]+)?\\s*kV)\\b', pt_text)
-        rated_voltage = re.sub(r'\\s+', '', rated_voltage)
+        rated_voltage = first_match(r'\b(?:PT\s*)?([0-9]+(?:\.[0-9]+)?\s*kV)\b', pt_text)
+        rated_voltage = re.sub(r'\s+', '', rated_voltage)
     make = extract_ct_make(dis_text)
     if not make:
-        make = first_match(r'\\b([A-Z][A-Z0-9.&/-]*(?:\\s*/\\s*[A-Z][A-Z0-9.&/-]*)?)\\s+MAKE\\b', clean_value(dis_text))
-        make = re.sub(r'\\s*/\\s*', '/', make)
+        make = first_match(r'\b([A-Z][A-Z0-9.&/-]*(?:\s*/\s*[A-Z][A-Z0-9.&/-]*)?)\s+MAKE\b', clean_value(dis_text))
+        make = re.sub(r'\s*/\s*', '/', make)
     fuse = extract_pt_fuse_rating(pt_text, dis_text)
     cores = extract_pt_core_lines(pt_text)
     core_count = len(cores) or 3
