@@ -740,7 +740,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   elif r['master_code']=='PT':
    pt_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=pt_spec(pt_row_text, msld_text, dis_text)
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:- B']
    editable_indices=[12]
   elif r['master_code']=='MCB':
