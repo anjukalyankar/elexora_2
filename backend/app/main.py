@@ -637,28 +637,9 @@ def extract_pt_fuse_rating(msld_text, dis_text):
     return ''
 
 
-def extract_pt_panel_suitability(msld_text):
-    """Extract panel suitability from the MSLD bottom line following WORK:."""
-    raw = (msld_text or '').replace('\r', '\n')
-    lines = [clean_value(line) for line in raw.split('\n') if clean_value(line)]
-    # Prefer the actual WORK line at the bottom of the drawing/text extraction.
-    for line in reversed(lines):
-        match = re.search(r'\bWORK\s*:\s*(.+)$', line, re.IGNORECASE)
-        if match:
-            value = clean_value(match.group(1)).strip(' :-')
-            if value and not re.fullmatch(r'WORK', value, re.IGNORECASE):
-                return value.upper()
-    # Fallback for flattened PDF text where WORK and its value are adjacent.
-    text = clean_value(raw)
-    match = re.search(
-        r'\bWORK\s*:\s*(.+?)(?=\s+(?:DRAWING\s+NO|DRG\.?\s*NO|SHEET|PAGE|DATE)\b|$)',
-        text, re.IGNORECASE
-    )
-    if match:
-        value = clean_value(match.group(1)).strip(' :-')
-        if value:
-            return value.upper()
-    return ''
+def extract_pt_panel_suitability(msld_text, dis_text=''):
+    """Use the exact same panel extraction source/rule as CT: DIS 2.01.00."""
+    return extract_panel_suitability(dis_text)
 
 
 
@@ -692,7 +673,7 @@ def pt_spec(pt_text, msld_text, dis_text):
     bil = extract_bil(dis_text)
     if bil:
         bil = bil.upper()
-    panel = extract_pt_panel_suitability(msld_text)
+    panel = extract_pt_panel_suitability(msld_text, dis_text)
     lines = [
         f'PT {rated_voltage}' if rated_voltage else 'PT',
         f'{make.upper()} MAKE' if make else 'MAKE',
