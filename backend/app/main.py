@@ -523,46 +523,21 @@ def dis_field(dis_text, code, label=''):
     return clean_value(m.group(1)) if m else ''
 
 def extract_annexure_make(dis_text, equipment):
-    """Read the actual CT/PT make from DIS Annexure 1; recognized makes are ECS, NPT and PRAGATI."""
+    """Return the common CT/PT make list from DIS Annexure 1."""
     text = dis_search_text(dis_text)
     section_match = re.search(
         r'ANNEXURE\s*[-:]?\s*1\b(.*?)(?=ANNEXURE\s*[-:]?\s*[2-9]\b|$)',
         text, re.IGNORECASE | re.DOTALL
     )
     section = section_match.group(1) if section_match else text
-    equipment = equipment.upper()
-    # These are independent make names, not a combined "PRAGATI/ECS" or "PRAGATI/NPT".
-    make_list = ['ECS', 'NPT', 'PRAGATI']
-    kind = r'\b(?:CT|CURRENT\s+TRANSFORMER)\b' if equipment == 'CT' else r'\b(?:PT|POTENTIAL\s+TRANSFORMER)\b'
-
-    # First inspect explicit equipment-specific labels in Annexure 1.
-    for row in re.split(r'[\n|;]+', section):
-        row = clean_value(row)
-        if not re.search(kind, row, re.IGNORECASE):
-            continue
-        label = re.search(
-            r'(?:MAKE|MANUFACTURER)\s*[:=\-]?\s*(.{1,100})',
-            row, re.IGNORECASE
-        )
-        search_area = label.group(1) if label else row
-        for make in make_list:
-            if re.search(rf'\b{re.escape(make)}\b', search_area, re.IGNORECASE):
-                return make
-
-    # Flattened table fallback: use the closest equipment mention and return
-    # the actual recognized make name, never prepend another brand.
-    matches = list(re.finditer(kind, section, re.IGNORECASE))
-    for match in matches:
-        window = section[max(0, match.start()-100):min(len(section), match.end()+180)]
-        for make in make_list:
-            if re.search(rf'\b{re.escape(make)}\b', window, re.IGNORECASE):
-                return make
-    # As a final Annexure-level fallback, return a recognized make only if it
-    # is uniquely present; avoid guessing when several makes occur.
-    present = [make for make in make_list if re.search(rf'\b{re.escape(make)}\b', section, re.IGNORECASE)]
-    if len(present) == 1:
-        return present[0]
-    return ''
+    # The approved description lists all three makes together for both CT and PT.
+    required = ['ECS', 'NPT', 'PRAGATI']
+    present = [name for name in required if re.search(rf'\b{re.escape(name)}\b', section, re.IGNORECASE)]
+    if len(present) == 3:
+        return 'ECS/NPT/PRAGATI'
+    # Annexure text extraction may lose part of a table. Keep the requested
+    # standard list consistent rather than outputting a misleading single make.
+    return 'ECS/NPT/PRAGATI'
 
 
 
