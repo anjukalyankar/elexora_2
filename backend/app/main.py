@@ -375,7 +375,1670 @@ def pdf_text(data,filename): return '\n'.join(p.get_text('text') for p in pdf_pa
 def first(pattern,text,default=''):
  m=re.search(pattern,text,re.I|re.M); return m.group(1).strip() if m else default
 def norm_voltage(v):
- v=(v or '').upper().replace('KV','').strip(); return v if v in {'6.6','11','33'} else ''
+ v=re.sub(r'\s+', '', str(v or '').strip().upper())
+ v=re.sub(r'KV
+def transform_word(page,word):
+ pts=[fitz.Point(word[0],word[1])*page.rotation_matrix,fitz.Point(word[2],word[3])*page.rotation_matrix]
+ return {'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':word[4]}
+def page_words(page): return [transform_word(page,w) for w in page.get_text('words') if w[4].strip()]
+def clean(s): return re.sub(r'\s+',' ',s).strip(' -')
+def words_text(words): return ' '.join(w['text'] for w in sorted(words,key=lambda z:(round(z['y'],1),z['x'])))
+def text_in_band(words,xmin,xmax,ymin,ymax): return clean(words_text([w for w in words if xmin<=w['x']<xmax and ymin<=w['y']<ymax]))
+def rows_by_designation(words,xmin,xmax,ymin,ymax):
+ vals=[]
+ for w in words:
+  if xmin<=w['x']<=xmax and ymin<=w['y']<=ymax:
+   t=clean(w['text'])
+   if t.upper() in {'DESIG.','QTY.','NO.'}: continue
+   if re.fullmatch(r'[A-Z0-9]+(?:[-/,][A-Z0-9]+)*',t,re.I) and re.search(r'\d',t): vals.append((w['y'],t))
+ vals.sort(); out=[]
+ for y,t in vals:
+  if not out or abs(y-out[-1][0])>5: out.append([y,t])
+ return out
+def designation_qty(des):
+ total=0
+ for part in re.split(r'[,/]',(des or '').upper()):
+  part=part.strip()
+  # Supports both letter-prefixed (F1-F3) and digit+letter (1H1-1H3)
+  # designations used by the fixed MSLD template.
+  m=re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)(\d+)-(?:[A-Z]+|\d+[A-Z]+)?(\d+)',part)
+  if m: total+=max(1,int(m.group(2))-int(m.group(1))+1)
+  elif re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)\d+',part): total+=1
+ if total==0 and des:
+  m=re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)(\d+)-(?:[A-Z]+|\d+[A-Z]+)(\d+)',des.upper())
+  if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
+ return total or None
+def master_match(description,details,designation):
+ s=(description+' '+details).upper()
+ if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
+ if 'CURRENT TRANSFORMER' in s:return 'CT'
+ if 'POTENTIAL TRANSFORMER' in s:return 'PT'
+ if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
+ if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
+ if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
+ if 'DIGITAL AMMETER' in s:return 'AMMETER'
+ if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
+ return designation or 'UNMATCHED'
+
+def extract_fixed_table(data,filename):
+ pages=pdf_pages(data,filename); records=[]; feeders=[]; warnings=[]
+ for page_no,page in enumerate(pages,1):
+  if page_no!=1:continue
+  words=page_words(page); feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465); feeder_quantity=text_in_band(words,440,520,360,380)
+  if feeder_type or feeder_designation:feeders.append({'name':feeder_designation or feeder_type,'type':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring,'quantity':feeder_quantity or '1'})
+  left=rows_by_designation(words,275,320,450,790)
+  for i,(y,des) in enumerate(left):
+   next_y=left[i+1][0] if i+1<len(left) else 790
+   # T1-T3 is a two-line CT block in the fixed MSLD template. Capture the
+   # complete technical-data block rather than only one visual row.
+   row_top = y-18 if des.upper() == 'T1-T3' else y-9
+   lo,hi=max(490,row_top),min(790,(y+next_y)/2)
+   desc=text_in_band(words,50,275,lo,hi); details=text_in_band(words,320,615,lo,hi)
+   if desc or details:records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
+  for ymin,ymax in [(35,345),(350,725)]:
+   right=rows_by_designation(words,840,880,ymin,ymax)
+   for i,(y,des) in enumerate(right):
+    next_y=right[i+1][0] if i+1<len(right) else ymax; lo,hi=max(ymin,y-8),min(ymax,(y+next_y)/2); desc=text_in_band(words,630,835,lo,hi); details=text_in_band(words,890,1175,lo,hi)
+    if desc or details:records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
+ return feeders,records,warnings
+
+def extract_header_from_page(data,filename):
+ pages=pdf_pages(data,filename)
+ if not pages:return {}
+ words=page_words(pages[0]); band=lambda a,b,c,d:text_in_band(words,a,b,c,d); drawing_band=band(980,1110,805,830); drawing=first(r'(G\d{4,}-[A-Z0-9]+-[A-Z0-9]+)',drawing_band,drawing_band); esd=first(r'\b(SED\d+)\b',drawing_band) or first(r'\b(SED\d+)\b',words_text(words))
+ return {'client':band(345,440,782,792),'sales_ref':band(910,960,782,793),'drawing':drawing,'esd':esd,'wo':band(905,960,793,805),'description':band(690,835,775,795),'qty':band(1000,1040,790,805),'master_singleline':band(690,835,800,815)}
+def header(msld,dis,client,sales,drawing,esd,wo,prep,voltage):
+ s=msld+'\n'+dis
+ return {'client':client.strip() or first(r'Client\s*:?\s*([^\n]+)',s),'sales_ref':sales.strip() or first(r'Sales\s*Ref\.?\s*:?\s*([^\n]+)',s),'drawing':drawing.strip() or first(r'Drg\.?\s*No\.?\s*:?\s*([^\n]+)',s),'esd':esd.strip() or first(r'\b(SED\d+)\b',s) or first(r'ESD\s*No\.?\s*:?\s*([^\n]+)',s),'wo':wo.strip() or first(r'W\.?O\.?\s*No\.?\s*:?\s*([^\n]+)',s),'prep_by':prep.strip(),'voltage':norm_voltage(voltage)}
+
+def clean_value(value):
+    if not value:
+        return ''
+    value = value.replace('\n', ' ')
+    value = re.sub(r'\s+', ' ', value)
+    return value.strip()
+
+def first_match(pattern, text, flags=re.IGNORECASE):
+    if not text:
+        return ''
+    m = re.search(pattern, text, flags)
+    return clean_value(m.group(1)) if m else ''
+
+def extract_ct_ratio(ct_text):
+    m = re.search(r'\bCTR\s*:\s*([0-9]+(?:\.[0-9]+)?(?:-[0-9]+(?:\.[0-9]+)?)?)\s*/', ct_text or '', re.I)
+    return m.group(1) if m else ''
+
+def extract_ct_secondary_current(ct_text):
+    m = re.search(r'\bCTR\s*:\s*[0-9]+(?:\.[0-9]+)?(?:-[0-9]+(?:\.[0-9]+)?)?\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*A', ct_text or '', re.I)
+    return f'{m.group(1)}A' if m else ''
+
+def extract_ct_core_lines(ct_text):
+    labeled = re.findall(r'CORE\s*(\d+)\s*:\s*(.*?)(?=,\s*CORE\s*\d+\s*:|$)', ct_text or '', re.I)
+    if labeled:
+        return [clean_value(v) for _, v in sorted(labeled, key=lambda x:int(x[0]))]
+    values=[]
+    # The fixed MSLD extraction normalizes line breaks, so multiple CTR
+    # entries can arrive on the same line. Stop each core at the next CTR
+    # (or STC) instead of consuming the whole technical-data string.
+    for m in re.finditer(r'\bCTR\s*:\s*(.*?)(?=\s+CTR\s*:|\s+STC\s*:|\s+SHORT\s+TIME\s+CURRENT\s*:|$)', ct_text or '', re.I):
+        value=clean_value(m.group(1))
+        if value: values.append(value)
+    return values
+
+def extract_ct_core_count(ct_text):
+    explicit=first_match(r'NO\.?\s*OF\s*CORES\s*[:\-]?\s*(\d+)',ct_text)
+    if explicit: return int(explicit)
+    return len(extract_ct_core_lines(ct_text)) or 1
+
+def generate_ct_code(ct_text):
+    ratio=extract_ct_ratio(ct_text)
+    secondary=extract_ct_secondary_current(ct_text)
+    count=extract_ct_core_count(ct_text)
+    return f'CT{ratio}{count}C-{secondary}' if ratio and secondary else ''
+
+def extract_ct_type(ct_text):
+    for pattern in [r'(EPOXY\s+CAST\s+RESIN\s*\(\s*WOUND\s+TYPE\s*\))',r'(WOUND\s+TYPE)',r'(WINDOW\s+TYPE)']:
+        value=first_match(pattern,ct_text)
+        if value:return value.upper()
+    return ''
+
+def build_ct_description(ct_text):
+    t=extract_ct_type(ct_text)
+    # Fixed CT wording required by the BOM template.
+    return f'CURRENT TRANSFORMER EPOXY CAST RESIN ({t})' if t else 'CURRENT TRANSFORMER EPOXY CAST RESIN (WOUND TYPE)'
+
+def build_ctr_line(ct_text):
+    n=extract_ct_core_count(ct_text)
+    word={1:'SINGLE',2:'TWO',3:'THREE'}.get(n,str(n))
+    return f'{word} CORE CT'
+
+def dis_search_text(dis_text):
+    return re.sub(r'\s+', ' ', dis_text or '').strip()
+
+def dis_field(dis_text, code, label=''):
+    # The DIS is a fixed template. Use the numbered field as the primary
+    # anchor because PDF text extraction can change spacing or wording.
+    text = dis_search_text(dis_text)
+    pattern = rf'{re.escape(code)}\s*(?:{label}\s*)?:?\s*(.*?)(?=\s+\d{{1,2}}\.\d{{2}}\.\d{{2}}\s+|$)'
+    m = re.search(pattern, text, re.IGNORECASE)
+    return clean_value(m.group(1)) if m else ''
+
+def extract_annexure_make(dis_text, equipment):
+    """Return the common CT/PT make list from DIS Annexure 1."""
+    text = dis_search_text(dis_text)
+    section_match = re.search(
+        r'ANNEXURE\s*[-:]?\s*1\b(.*?)(?=ANNEXURE\s*[-:]?\s*[2-9]\b|$)',
+        text, re.IGNORECASE | re.DOTALL
+    )
+    section = section_match.group(1) if section_match else text
+    # The approved description lists all three makes together for both CT and PT.
+    required = ['ECS', 'NPT', 'PRAGATI']
+    present = [name for name in required if re.search(rf'\b{re.escape(name)}\b', section, re.IGNORECASE)]
+    if len(present) == 3:
+        return 'ECS/NPT/PRAGATI'
+    # Annexure text extraction may lose part of a table. Keep the requested
+    # standard list consistent rather than outputting a misleading single make.
+    return 'ECS/NPT/PRAGATI'
+
+
+
+def extract_ct_make(dis_text):
+    text = dis_search_text(dis_text)
+    # Fixed DIS make may appear as "PRAGATI MAKE", "PRAGATI/ECS MAKE",
+    # "CT MAKE: PRAGATI", or "MAKE OF CT: PRAGATI". Do not depend on one
+    # exact PDF text layout.
+    patterns = [
+        r'\b(PRAGATI(?:\s*/\s*[A-Z][A-Z0-9.&\-]*)+)\s+MAKE\b',
+        r'\b(PRAGATI(?:\s*/\s*[A-Z][A-Z0-9.&\-]*)+)\b',
+        r'\b(PRAGATI)\s+MAKE\b',
+        r'(?:CT\s*/?\s*MAKE|CT/PT\s+MAKE|MAKE\s+OF\s+CT)\s*[:\-]?\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)*)',
+        r'\bMAKE\s*[:\-]\s*([A-Za-z][A-Za-z0-9.&/\-]*(?:\s*/\s*[A-Za-z][A-Za-z0-9.&/\-]*)*)',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            value = re.sub(r'\s*/\s*', '/', clean_value(m.group(1)))
+            if value and value.upper() not in {'OF','CT','PT','MAKE'}:
+                return value
+    return ''
+
+def extract_rated_voltage(dis_text):
+    value = dis_field(dis_text, '1.03.00', r'(?:Rated\s+(?:operational\s+)?voltage)')
+    m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(KV|kV)', value or '', re.IGNORECASE)
+    if m:
+        return f'{m.group(1)}kV'
+    text = dis_search_text(dis_text)
+    m = re.search(r'Rated\s+(?:operational\s+)?voltage\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*(KV|kV)', text, re.IGNORECASE)
+    return f'{m.group(1)}kV' if m else ''
+
+def extract_frequency(dis_text):
+    value = dis_field(dis_text, '1.02.00', r'Main\s+System')
+    text = value or dis_search_text(dis_text)
+    m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*Hz', text, re.IGNORECASE)
+    return f'{m.group(1)}Hz' if m else ''
+
+def extract_bil(dis_text):
+    values = []
+    for code in ('1.04.00','1.06.00','1.07.00'):
+        value = dis_field(dis_text, code)
+        m = re.search(r'([0-9]+(?:\.[0-9]+)?)', value)
+        if not m:
+            return ''
+        values.append(m.group(1))
+    return '/'.join(values) + 'KVp'
+
+def extract_panel_suitability(dis_text):
+    # Source is DIS 2.01.00 "Type of switchboard", not 2.02.01 Location.
+    # Example fixed-template value:
+    # 8BK80(1000mm)+3AH3 VCB
+    value = dis_field(dis_text, '2.01.00', r'Type\s+of\s+switchboard')
+    if value:
+        m = re.search(r'\b(8BK80)\s*\(?\s*(\d{3,4})\s*mm\s*\)?', value, re.I)
+        if m:
+            return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
+    # Fallback: search the whole DIS only if the numbered field was not
+    # extracted cleanly.
+    text = dis_search_text(dis_text)
+    m = re.search(r'\b(8BK80)\s*\(?\s*(\d{3,4})\s*mm\s*\)?', text, re.I)
+    if m:
+        return f'{m.group(1).upper()}-{m.group(2)}mm WIDTH PANEL'
+    return ''
+
+def extract_pt_core_lines(pt_text):
+    """Extract only each PT core's ratio, burden and accuracy class; never absorb adjacent MSLD equipment."""
+    text = clean_value(pt_text)
+    # The PT core table is followed by other equipment rows in flattened PDF text.
+    # Extract bounded engineering tokens instead of consuming everything until the next CORE label.
+    core_matches = re.findall(
+        r'(?:\b(?:CORE\s*\d+\s*:\s*)?)'
+        r'((?:\d+(?:\.\d+)?\s*kV\s*/\s*(?:√|\bSQRT\b)?\s*3\s*/\s*'
+        r'\d+(?:\.\d+)?\s*/\s*(?:√|\bSQRT\b)?\s*3\s*,?\s*)?'
+        r'\d+(?:\.\d+)?\s*VA\s*,?\s*CL\.?\s*-?\s*[A-Z0-9.]+)',
+        text, re.IGNORECASE
+    )
+    result = []
+    for value in core_matches:
+        value = clean_value(value).rstrip(' ,;')
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+
+def extract_pt_fuse_rating(msld_text, dis_text):
+    text = clean_value((msld_text or '') + ' ' + (dis_text or ''))
+    patterns = [
+        r'(?:IN[- ]?BUILT\s+)?PRIMARY\s+FUSE(?:\s+OF|\s+RATING)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*A\b',
+        r'FUSE\s+(?:RATING|CURRENT)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*A\b',
+    ]
+    for pattern in patterns:
+        value = first_match(pattern, text)
+        if value:
+            return f'{value}A'
+    return ''
+
+
+def extract_pt_panel_suitability(msld_text, dis_text=''):
+    """Use the exact same panel extraction source/rule as CT: DIS 2.01.00."""
+    return extract_panel_suitability(dis_text)
+
+
+
+def pt_spec(pt_text, msld_text, dis_text):
+    """Format PT description from MSLD/DIS using the approved fixed layout."""
+    source = clean_value((pt_text or '') + ' ' + (msld_text or ''))
+    rated_voltage = extract_rated_voltage(dis_text)
+    if not rated_voltage:
+        rated_voltage = first_match(r'\b([0-9]+(?:\.[0-9]+)?\s*kV)\b', source)
+        rated_voltage = re.sub(r'\s+', '', rated_voltage)
+    # PT make is sourced from DIS.
+    make = extract_annexure_make(dis_text, 'PT') or extract_ct_make(dis_text)
+    if not make:
+        dis_source = dis_search_text(dis_text)
+        make = first_match(r'(?:Manufacturer(?:\s+name)?|Make\s+of\s+(?:PT|potential\s+transformer))\s*[:=\-]?\s*([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)', dis_source)
+        if not make:
+            make = first_match(r'\b([A-Z][A-Z0-9.&/\-]*(?:\s*/\s*[A-Z][A-Z0-9.&/\-]*)?)\s+MAKE\b', dis_source)
+        make = re.sub(r'\s*/\s*', '/', make)
+    # Preserve transformer type from MSLD when it is present.
+    transformer_type = first_match(
+        r'(POTENTIAL\s+TRANSFORMERS?\s+IN\s+.+?(?:DRAWOUT\s+TYPE|TYPE))',
+        source
+    )
+    if not transformer_type:
+        transformer_type = 'POTENTIAL TRANSFORMERS IN CAST RESIN EPOXY CASE (DRAWOUT TYPE)'
+    transformer_type = clean_value(transformer_type).upper()
+    cores = extract_pt_core_lines(pt_text) or extract_pt_core_lines(msld_text)
+    core_count = len(cores) or 3
+    core_word = {1: 'SINGLE', 2: 'TWO', 3: 'THREE'}.get(core_count, str(core_count))
+    frequency = extract_frequency(dis_text)
+    bil = extract_bil(dis_text)
+    if bil:
+        bil = bil.upper()
+    panel = extract_pt_panel_suitability(msld_text, dis_text)
+    lines = [
+        f'PT {rated_voltage}' if rated_voltage else 'PT',
+        f'{make.upper()} MAKE' if make else 'MAKE',
+        transformer_type,
+        '- SINGLE PHASE WITH IN BUILT PRIMARY FUSE OF 3.15A',
+        f'{core_word} CORE PT, AS PER IS/IEC STANDARD',
+        'AS GIVEN BELOW:-',
+    ]
+    for index, value in enumerate(cores, 1):
+        lines.append(f'- CORE {index}: {value}')
+    lines.extend([
+        f'- RATED FREQUENCY: {frequency}' if frequency else '- RATED FREQUENCY:',
+        '- VF: 1.2COUNT/1.9 FOR 8 HOURS',
+        f'- BIL: {bil}' if bil else '- BIL:',
+        'INSULATION CLASS:- B',
+        f'SUITABLE FOR {panel}' if panel else 'SUITABLE FOR',
+    ])
+    return lines
+
+def ct_spec(ct_text, dis_text):
+    ct_code=generate_ct_code(ct_text)
+    ct_make=extract_annexure_make(dis_text, 'CT') or extract_ct_make(dis_text)
+    # Retain the legacy default only if Annexure 1 and the DIS text expose no CT make.
+    if not ct_make:
+        ct_make = ''
+    ct_description=build_ct_description(ct_text)
+    rated_voltage=extract_rated_voltage(dis_text)
+    frequency=extract_frequency(dis_text)
+    stc=first_match(r'(?:SHORT\s+TIME\s+CURRENT|STC)\s*:?\s*(.*?)(?=\s+CTR\s*:|\s+CORE\s*\d+\s*:|\s+STC\s*:|\s*$)',ct_text or '')
+    bil=extract_bil(dis_text)
+    cores=extract_ct_core_lines(ct_text)
+    panel=extract_panel_suitability(dis_text)
+    lines=[
+        ct_code or 'CT',
+        f'{ct_make.upper()} MAKE' if ct_make else '',
+        ct_description,
+        '- SINGLE PHASE, AS PER IS/IEC STANDARD',
+        f'- RATED VOLTAGE: {rated_voltage}' if rated_voltage else '- RATED VOLTAGE:',
+        f'- RATED FREQUENCY: {frequency}' if frequency else '- RATED FREQUENCY:',
+        f'- SHORT TIME CURRENT: {stc}' if stc else '- SHORT TIME CURRENT:',
+        f'- BIL: {bil}' if bil else '- BIL:',
+        'INSULATION CLASS:-B',
+        'AS GIVEN BELOW:-',
+        build_ctr_line(ct_text)
+    ]
+    for i,value in enumerate(cores,1):
+        lines.append(f'- CORE {i}: {value}')
+    lines.extend([
+        f'SUITABLE FOR {panel}' if panel else 'SUITABLE FOR',
+        'CT SECONDARY TERMINAL ON P2 SIDE'
+    ])
+    return lines
+
+
+def build_rows(feeder_info,records,msld_text='',dis_text=''):
+ feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
+ for i,r in enumerate(records,1):
+  relay_analysis = None
+  if r['master_code']=='CT':
+   ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
+   spec_lines=ct_spec(ct_row_text,dis_text)
+   spec='\n'.join(spec_lines)
+   editable_fields=['INSULATION CLASS:-B','CT SECONDARY TERMINAL ON P2 SIDE']
+   # Core count changes the position of the SUITABLE FOR line. Resolve
+   # editable positions from their actual labels so 3-core CTs never mark
+   # the SUITABLE FOR row as editable by mistake.
+   editable_indices = []
+   for editable_label in editable_fields:
+    target = editable_label.split(' ON P2 SIDE')[0]
+    line_index = next((idx for idx, line in enumerate(spec_lines)
+                       if target in line), None)
+    if line_index is not None:
+     editable_indices.append(line_index)
+  elif r['master_code']=='PT':
+   pt_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
+   spec_lines=pt_spec(pt_row_text, msld_text, dis_text)
+   spec='\n'.join(spec_lines)
+   editable_fields=['INSULATION CLASS:- B']
+   editable_indices=[12]
+  elif r['master_code']=='MCB':
+   mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
+   if mcb_item:
+    spec, spec_lines = mcb_spec(mcb_item)
+   else:
+    spec = r['description']+((' | '+r['details']) if r['details'] else '')
+    spec_lines = [clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='7SJ6611':
+   # Relay validation must use only this equipment row. Passing the full MSLD
+   # could borrow an MLFB from another section/row and create a relay BOM line
+   # that is not actually specified for this designation.
+   relay_source = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
+   relay_analysis = analyze_7sj66(relay_source)
+   # Never drop a detected relay row just because its MLFB is missing or
+   # its chart-coded options conflict with the MSLD details. Preserve the
+   # source text in the BOM so engineering details are not lost, and attach
+   # validation feedback for the UI warning list.
+   source_relay_text = clean_value(' | '.join(
+    part for part in [r.get('description',''), r.get('details','')] if part
+   ))
+   relay_validation = relay_analysis.get('validation') or {}
+   has_mlfb = bool(relay_analysis.get('fields', {}).get('mlfb', {}).get('value'))
+   # Only validate/report a missing MLFB when this MSLD row explicitly
+   # identifies a 7SJ66 relay. A generic numerical-relay label is not enough.
+   has_7sj66_evidence = bool(re.search(r'\b7SJ66\w*\b', relay_source, re.IGNORECASE))
+   if not has_mlfb and not has_7sj66_evidence:
+    continue
+   # When an MLFB is extracted, always show the structured description.
+   # Validation errors/warnings stay separate and do not replace BOM details.
+   if has_mlfb:
+    spec = relay_analysis['description']
+    spec_lines = spec.splitlines()
+   else:
+    # Keep source text only when the MSLD actually identifies a relay.
+    spec = source_relay_text
+    spec_lines = [spec] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='LED':
+   h789 = led_specs_for_h7_h8_h9(r.get('description',''), r.get('details',''), r.get('designation',''))
+   if h789:
+    # Split the source quantity across the colour-specific H7/H8/H9 rows.
+    # Example: source qty 3 and three colours -> 1 each, total remains 3 per feeder.
+    group_qty = int(r.get('quantity') or 1)
+    split_count = len(h789)
+    base_qty, remainder = divmod(group_qty, split_count)
+    for part_index, part in enumerate(h789):
+     part_lines=part['specification_lines']
+     part_qty = base_qty + (1 if part_index < remainder else 0)
+     rows.append({'sr':len(rows)+1,'specification':'\n'.join(part_lines),'specification_lines':part_lines,'editable_fields':[],'editable_indices':[],'designation':part['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':part_qty*feeder_qty_num,'eqpt_qty':part_qty,'mpd':'','amd':'','master_code':'LED'})
+    continue
+   spec_lines, led_item = led_spec(r.get('description',''), r.get('details',''), r.get('designation',''))
+   spec='\n'.join(spec_lines) if spec_lines else r['description']+((' | '+r['details']) if r['details'] else '')
+   spec_lines=spec_lines or ([clean(spec)] if spec else [])
+   editable_fields=[]
+   editable_indices=[]
+  else:
+   spec=r['description']+((' | '+r['details']) if r['details'] else '')
+   spec_lines=[clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None})
+  if r['master_code']=='MCB':
+   mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
+   has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
+   if has_aux_1no_1nc:
+    mcb_qty = (r['quantity'] or 1)
+    addon_item = load_mcb_addon_master()
+    if addon_item and addon_item.get('discription'):
+     addon_spec = addon_item['discription']
+     addon_lines = [part.strip() for part in addon_spec.split(',') if part.strip()]
+     rows.append({'sr':len(rows)+1,'specification':'\n'.join(addon_lines),'specification_lines':addon_lines,'editable_fields':[],'editable_indices':[],'designation':str(r.get('designation',''))+'A','feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':mcb_qty*feeder_qty_num,'eqpt_qty':mcb_qty,'mpd':'','amd':'','master_code':'MCB ADD-ON'})
+ return rows,feeder_name,feeder_qty
+
+def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
+ msld_text=pdf_text(msld_bytes,msld_name); dis_text=pdf_text(dis_bytes,dis_name); same=bool(msld_text.strip()) and re.sub(r'\s+','',msld_text)==re.sub(r'\s+','',dis_text); feeder_info,records,warnings=extract_fixed_table(msld_bytes,msld_name)
+ if same:warnings.append('The same PDF was supplied in both MSLD and DIS slots. It was processed once; DIS was used as the validation copy.')
+ elif dis_text.strip():warnings.append('DIS supplied: used as the fixed specification source; MSLD remains the primary project-data source.')
+ rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text)
+ for row in rows:
+  validation=row.get('relay_validation')
+  if validation:
+   relay_label='7SJ66 relay '+str(row.get('designation',''))
+   warnings.extend([relay_label+': '+message for message in validation.get('errors',[])])
+   warnings.extend([relay_label+': '+message for message in validation.get('warnings',[])])
+ h=header(msld_text,dis_text,client,sales,drawing,esd,wo,prep,voltage); ph=extract_header_from_page(msld_bytes,msld_name)
+ for key in ('client','sales_ref','drawing','wo'):
+  if ph.get(key):h[key]=ph[key]
+ if ph.get('esd'):h['esd']=ph['esd']
+ source=msld_text+'\n'+dis_text; q=first(r'\bQty\.\s*:\s*(\d+x?)\b',source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b',source) or ph.get('qty',''); v=norm_voltage(voltage) or first(r'\b(6\.6|11|33)\s*KV\b',source); description=f'{v}kV SWITCHBOARD' if v else 'SWITCHBOARD'
+ if not rows:warnings.append('No equipment rows were confidently extracted from the fixed MSLD table.')
+ unmatched=[r['designation'] for r in records if r['master_code']=='UNMATCHED']
+ if unmatched:warnings.append('Master Data match not available for: '+', '.join(unmatched)+'. Source description was preserved; no engineering item was guessed.')
+ unmatched_mcb=[r['designation'] for r in records if r['master_code']=='MCB' and not mcb_master_match(r.get('description',''),r.get('details',''),r.get('designation',''))]
+ if unmatched_mcb:warnings.append('MCB specifications could not be fully verified against the master DISCRIPTION for: '+', '.join(unmatched_mcb)+'. Source text was preserved; verify before issuing the BOM.')
+ return {'header':h,'document_no':'SI EA/CS/FR/EG/015','revision':'1.0','effective_date':'17/07/2026','created_by':'EA CS ENGG','description':description,'rows':rows,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'qty':q,'warnings':warnings,'feeder_details':feeder_info,'same_input_file':same}
+
+
+def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, drawing, esd, wo, prep, voltage):
+    """Build one BOM across many MSLDs, using one common DIS as the specification source."""
+    dis_text = pdf_text(dis_bytes, dis_name)
+    all_rows = []
+    feeders = []
+    warnings = []
+    header_source = ""
+    first_ph = {}
+    qty_text = ""
+    for idx, item in enumerate(msld_files):
+        msld_bytes, msld_name = item
+        msld_text = pdf_text(msld_bytes, msld_name)
+        if idx == 0:
+            header_source = msld_text
+            first_ph = extract_header_from_page(msld_bytes, msld_name)
+            source = msld_text + "\n" + dis_text
+            qty_text = first(r'\bQty\.\s*:\s*(\d+x?)\b', source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b', source) or first_ph.get('qty', '')
+        feeder_info, records, file_warnings = extract_fixed_table(msld_bytes, msld_name)
+        if not feeder_info:
+            warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
+            feeder_info = [{'name': os.path.splitext(os.path.basename(msld_name))[0], 'designation': os.path.splitext(os.path.basename(msld_name))[0], 'quantity': '1'}]
+        feeder_name = feeder_info[0].get('designation') or feeder_info[0].get('name') or f"MSLD {idx + 1}"
+        feeder_qty_text = feeder_info[0].get('quantity', '1')
+        qty_match = re.search(r'\d+', str(feeder_qty_text))
+        feeder_qty_num = int(qty_match.group()) if qty_match else 1
+        feeders.append({'name': str(feeder_name), 'qty': str(feeder_qty_text), 'quantity': feeder_qty_num, 'source_file': msld_name})
+        built, _, _ = build_rows(feeder_info, records, msld_text, dis_text)
+        for row in built:
+            validation = row.get('relay_validation')
+            if validation:
+                relay_label = str(msld_name) + ': 7SJ66 relay ' + str(row.get('designation', ''))
+                warnings.extend([relay_label + ': ' + message for message in validation.get('errors', [])])
+                warnings.extend([relay_label + ': ' + message for message in validation.get('warnings', [])])
+        for row in built:
+            row['_feeder_index'] = idx
+            all_rows.append(row)
+        warnings.extend([f"{msld_name}: {w}" for w in file_warnings])
+        unmatched = [r['designation'] for r in records if r['master_code'] == 'UNMATCHED']
+        if unmatched:
+            warnings.append(f"{msld_name}: Master Data match not available for: " + ', '.join(unmatched) + ". Source description was preserved; no engineering item was guessed.")
+        unmatched_mcb = [r['designation'] for r in records if r['master_code'] == 'MCB' and not mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))]
+        if unmatched_mcb:
+            warnings.append(f"{msld_name}: MCB specifications could not be fully verified against the master DISCRIPTION for: " + ', '.join(unmatched_mcb) + ". Source text was preserved; verify before issuing the BOM.")
+    # Merge identical equipment only when its normalized specification and category match.
+    merged = {}
+    for row in all_rows:
+        idx = row.pop('_feeder_index')
+        spec_lines = row.get('specification_lines') or []
+        identity_text = row.get('specification') or '\n'.join(spec_lines)
+        key = (str(row.get('master_code', '')).strip().upper(), re.sub(r'\s+', ' ', identity_text).strip().casefold())
+        if key not in merged:
+            entry = dict(row)
+            entry['sr'] = len(merged) + 1
+            entry['feeder_quantities'] = [0] * len(feeders)
+            entry['designation_by_feeder'] = [''] * len(feeders)
+            entry['total'] = 0
+            entry['eqpt_qty'] = 0
+            merged[key] = entry
+        entry = merged[key]
+        qty = row.get('eqpt_qty')
+        if qty is None:
+            qty = 1
+        try:
+            qty = int(qty)
+        except (ValueError, TypeError):
+            qty = 1
+        # Feeder columns show equipment quantity per typical panel. Total is
+        # calculated only after merging, using that feeder's panel multiplier.
+        entry['feeder_quantities'][idx] += qty
+        designation = str(row.get('designation', '') or '').strip()
+        if designation:
+            existing = entry['designation_by_feeder'][idx]
+            if isinstance(existing, list):
+                if designation not in existing:
+                    existing.append(designation)
+            elif existing and existing != designation:
+                entry['designation_by_feeder'][idx] = [existing, designation]
+            else:
+                entry['designation_by_feeder'][idx] = [designation]
+        entry['eqpt_qty'] += qty
+    rows = list(merged.values())
+    for row in rows:
+        quantities = row.get('feeder_quantities') or []
+        per_feeder_quantities = []
+        total = 0
+        for i, feeder in enumerate(feeders):
+            try:
+                equipment_qty = int(quantities[i] or 0) if i < len(quantities) else 0
+            except (TypeError, ValueError):
+                equipment_qty = 0
+            try:
+                feeder_qty = int(feeder.get('quantity') or 1)
+            except (TypeError, ValueError):
+                feeder_qty = 1
+            per_feeder_quantities.append(equipment_qty)
+            total += equipment_qty * max(1, feeder_qty)
+        row['feeder_quantities'] = per_feeder_quantities
+        row['total'] = total
+    def equipment_order(row):
+        code = str(row.get('master_code', '')).strip().upper()
+        spec = str(row.get('specification', '')).upper()
+        text = ' '.join([code, spec, str(row.get('designation', '')).upper()])
+        # Keep corresponding equipment from all MSLDs together in a stable,
+        # engineering-oriented category order.
+        if code == 'CT' or re.search(r'\bCURRENT TRANSFORMER\b|\bC\.T\.\b', text):
+            rank = 0
+        elif code in ('PT', 'VT') or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b|\bP\.T\.\b', text):
+            rank = 1
+        elif code in ('LA', 'SA') or 'SURGE ARRESTER' in text:
+            rank = 2
+        elif code in ('CB', 'VCB', 'BREAKER') or 'CIRCUIT BREAKER' in text:
+            rank = 3
+        elif code.startswith('MCB') or re.search(r'\bMCB\b', text):
+            rank = 4
+        elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in text or re.search(r'\bLED\b', text):
+            rank = 5
+        else:
+            rank = 6
+        return (rank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
+    rows.sort(key=equipment_order)
+    for i, row in enumerate(rows, 1):
+        row['sr'] = i
+        designations = []
+        for values in row.pop('designation_by_feeder', []):
+            if isinstance(values, str):
+                values = [values]
+            for value in values or []:
+                value = str(value).strip()
+                if value and value not in designations:
+                    designations.append(value)
+        row['designation'] = ', '.join(designations)
+        row['feeder_name'] = ''
+        row['feeder_qty'] = ''
+    h = header(header_source, dis_text, client, sales, drawing, esd, wo, prep, voltage)
+    for key in ('client', 'sales_ref', 'drawing', 'wo'):
+        if first_ph.get(key):
+            h[key] = first_ph[key]
+    if first_ph.get('esd'):
+        h['esd'] = first_ph['esd']
+    source = header_source + '\n' + dis_text
+    v = norm_voltage(voltage) or first(r'\b(6\.6|11|33)\s*KV\b', source)
+    description = f'{v}kV SWITCHBOARD' if v else 'SWITCHBOARD'
+    if not rows:
+        warnings.append('No equipment rows were confidently extracted from the supplied MSLD files.')
+    if dis_text.strip():
+        warnings.append('One common DIS supplied: used as the specification source for all MSLDs.')
+    return {
+        'header': h, 'document_no': 'SI EA/CS/FR/EG/015', 'revision': '1.0',
+        'effective_date': '17/07/2026', 'created_by': 'EA CS ENGG',
+        'description': description, 'rows': rows, 'feeders': feeders,
+        'feeder_name': feeders[0]['name'] if feeders else '',
+        'feeder_qty': feeders[0]['qty'] if feeders else '',
+        'qty': qty_text, 'warnings': list(dict.fromkeys(warnings)),
+        'feeder_details': feeders, 'same_input_file': False
+    }
+
+@app.post('/api/bom/check-customers')
+async def check_msld_customers(
+    mslds: list[UploadFile] = File(...),
+    dis: UploadFile = File(...),
+    client: str = Form(''),
+    wo: str = Form(''),
+    voltage: str = Form(''),
+    user: str = Depends(current_user)
+):
+    """Check MSLD and common DIS header values before BOM generation."""
+    results = []
+    for upload in mslds:
+        data = await upload.read()
+        filename = upload.filename or 'MSLD.pdf'
+        extracted = extract_header_from_page(data, filename)
+        source_text = pdf_text(data, filename)
+        customer = clean_value(extracted.get('client', '')).strip(' :-')
+        if not customer:
+            customer = first(r'Client\s*[:\-]*\s*([^\n]+)', source_text).strip(' :-') or first(r'Customer\s*Name\s*[:\-]*\s*([^\n]+)', source_text).strip(' :-')
+        work_order = clean_value(extracted.get('wo', '')).strip(' :-')
+        if not work_order:
+            work_order = first(r'W\.?\s*O\.?\s*(?:No\.?)?\s*[:\-]\s*([^\n]+)', source_text).strip(' :-')
+        voltage_match = first(r'\b(6\.6|11|33)\s*k?V\b', source_text)
+        results.append({'filename': filename, 'customer': clean_value(customer), 'work_order': clean_value(work_order), 'voltage': clean_value(voltage_match)})
+    dis_bytes = await dis.read()
+    dis_name = dis.filename or 'DIS.pdf'
+    dis_header = extract_header_from_page(dis_bytes, dis_name)
+    dis_text = pdf_text(dis_bytes, dis_name)
+    # DIS is a two-column footer table. Parse the Client/W.O. values from
+    # words on the same visual row, stopping before the right-hand columns.
+    dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
+    def footer_value(label_pattern, stop_pattern=None):
+        # Labels can be separate PDF words ("Client", ":-") or combined
+        # ("Client:"). Read only words to the right on the same visual row.
+        labels = [w for w in dis_words if re.match(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)]
+        for label_word in labels:
+            row = sorted(
+                [w for w in dis_words if abs(w['y'] - label_word['y']) <= 8 and w['x'] > label_word['x']],
+                key=lambda w: w['x']
+            )
+            picked=[]
+            for word in row:
+                token=word['text'].strip(' :.-')
+                if not token:
+                    continue
+                # Footer columns/fields start here; never absorb their labels.
+                if re.match(r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)
+    if not dis_wo:
+        dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
+    dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
+    def distinct(values):
+        return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
+    customers = distinct([x['customer'] for x in results])
+    work_orders = distinct([x['work_order'] for x in results])
+    voltages = distinct([x['voltage'] for x in results])
+    mismatches = []
+    if len({x.casefold() for x in customers}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different customer names.')
+    if len({x.casefold() for x in work_orders}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different work order numbers.')
+    if len({x.casefold() for x in voltages}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different voltage values.')
+    entered = {'customer': clean_value(client), 'work_order': clean_value(wo), 'voltage': clean_value(voltage)}
+    for label, values, dis_value, entered_value in [
+        ('Customer name', customers, dis_customer, entered['customer']),
+        ('Work order number', work_orders, dis_wo, entered['work_order']),
+        ('Voltage', voltages, dis_voltage, entered['voltage'])
+    ]:
+        all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
+        if label == 'Voltage':
+            all_values = distinct([norm_voltage(value) or value for value in all_values])
+        if len({x.casefold() for x in all_values}) > 1:
+            mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
+
+    # Do not silently proceed when a PDF header field could not be extracted.
+    # The existing verification modal displays these messages and lets the user
+    # review the extracted values before choosing whether to continue.
+    for item in results:
+        if not item['work_order']:
+            mismatches.append(f"Work order number could not be read from MSLD: {item['filename']}.")
+        if not item['voltage']:
+            mismatches.append(f"Voltage could not be read from MSLD: {item['filename']}.")
+    if not dis_wo:
+        mismatches.append(f"Work order number could not be read from DIS: {dis_name}.")
+    if not dis_voltage:
+        mismatches.append(f"Voltage could not be read from DIS: {dis_name}.")
+    return {
+        'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
+        'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
+        'mismatches': list(dict.fromkeys(mismatches)),
+        'dis': {'filename': dis_name, 'customer': dis_customer, 'work_order': dis_wo, 'voltage': clean_value(dis_voltage)}
+    }
+
+@app.post('/api/bom/preview-multiple')
+async def preview_multiple(
+    client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
+    esd: str = Form(''), wo: str = Form(''), prep_by: str = Form(''),
+    voltage: str = Form(''), mslds: list[UploadFile] = File(...),
+    dis: UploadFile = File(...), user: str = Depends(current_user)
+):
+    if not mslds:
+        raise HTTPException(status_code=400, detail='Upload at least one MSLD PDF.')
+    dis_name = dis.filename or 'DIS.pdf'
+    dis_bytes = await dis.read()
+    items = []
+    filenames = []
+    for upload in mslds:
+        filename = upload.filename or 'MSLD.pdf'
+        items.append((await upload.read(), filename))
+        filenames.append(filename)
+    result = extract_multiple_from_files(items, dis_bytes, dis_name, client, sales_ref, drawing, esd, wo, prep_by, voltage)
+    import json
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO bom_history (username, customer_name, work_order_no, voltage, msld_files, dis_filename, row_count)
+               VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)""",
+            (user, str(client or result.get('header', {}).get('client', '')), str(wo or result.get('header', {}).get('wo', '')),
+             str(voltage or ''), json.dumps(filenames), dis_name, len(result.get('rows') or []))
+        )
+        conn.commit()
+    return result
+
+
+
+
+class SiemensLookupRequest(BaseModel):
+    mlfb: str
+
+
+@app.post('/api/siemens/product-lookup')
+def siemens_product_lookup(payload: SiemensLookupRequest, user: str = Depends(current_user)):
+    """POC: live lookup of a supplied 7SJ66 MLFB on Siemens Industry Mall."""
+    return lookup_siemens_product(payload.mlfb)
+
+@app.get('/api/admin/bom-history')
+def admin_bom_history(user: str = Depends(require_admin)):
+    with db() as conn:
+        total = conn.execute("SELECT COUNT(*) AS total FROM bom_history").fetchone()['total']
+        rows = conn.execute(
+            """SELECT id, username, customer_name, work_order_no, voltage, msld_files,
+                      dis_filename, row_count, created_at
+               FROM bom_history ORDER BY created_at DESC LIMIT 500"""
+        ).fetchall()
+    return {'total_generated': total, 'history': rows}
+
+def export_combined_book(payload):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'BOM'
+    thin = Side(style='thin')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_data = payload.get('header', {})
+    feeders = payload.get('feeders') or []
+    rows = payload.get('rows') or []
+    n = max(1, len(feeders))
+    qty_col = 4
+    feeder_start_col = 5
+    total_col = feeder_start_col + n
+    mpd_col, amd_col = total_col + 1, total_col + 2
+    last_col = amd_col
+    ws.page_setup.orientation = 'landscape'
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins.left = .25
+    ws.page_margins.right = .25
+    ws.page_margins.top = .45
+    ws.page_margins.bottom = .4
+    ws.sheet_view.showGridLines = False
+    spec_width = max(36, min(78, max([max((len(line) for line in str(r.get('specification','')).splitlines()), default=0) for r in rows] + [36]) * 0.75))
+    designation_width = max(14, min(26, max([len(str(r.get('designation',''))) for r in rows] + [14]) * 0.9))
+    feeder_width = max(10, min(18, max([len(str(f.get('name',''))) for f in feeders] + [8]) * 0.9))
+    widths = [9, spec_width, designation_width, 9] + [feeder_width] * n + [13, 7, 7]
+    for col, width in enumerate(widths, 1):
+        ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width = width
+    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=min(3, last_col))
+    ws.cell(1, 1, '-: Equipment List :-')
+    ws.cell(1, 1).font = Font(name='Courier New', size=10)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center', vertical='center')
+    meta_col = max(4, last_col - 2)
+    ws.merge_cells(start_row=1, start_column=meta_col, end_row=2, end_column=last_col)
+    ws.cell(1, meta_col, f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}')
+    ws.cell(1, meta_col).font = Font(name='Arial', size=7)
+    ws.cell(1, meta_col).alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
+    ws.row_dimensions[1].height = 34
+    ws.row_dimensions[2].height = 16
+    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
+        ws.cell(4, col, label)
+    for col in [1,2,3,total_col,mpd_col,amd_col]:
+        ws.merge_cells(start_row=4, start_column=col, end_row=6, end_column=col)
+    ws.merge_cells(start_row=5, start_column=qty_col, end_row=6, end_column=qty_col)
+    ws.cell(5,qty_col,'QTY.')
+    ws.merge_cells(start_row=4, start_column=feeder_start_col, end_row=4, end_column=feeder_start_col+n-1)
+    ws.cell(4,feeder_start_col,'FEEDER TYPICAL')
+    for idx, feeder in enumerate(feeders):
+        col=feeder_start_col+idx
+        ws.cell(5,col,feeder.get('name',''))
+        ws.cell(6,col,feeder.get('quantity') or feeder.get('qty') or 1)
+    for r in range(4,7):
+        for c in range(1,last_col+1):
+            cell=ws.cell(r,c)
+            cell.border=border
+            cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            cell.font=Font(name='Courier New',size=8,bold=True)
+    ws.row_dimensions[4].height=23
+    ws.row_dimensions[5].height=18
+    ws.row_dimensions[6].height=28
+    for i,row in enumerate(rows[:64],7):
+        quantities = row.get('feeder_quantities') or []
+        vals=[row.get('sr',''),row.get('specification',''),row.get('designation','')]
+        vals.append('')
+        vals.extend(quantities[j] if j < len(quantities) and quantities[j] not in (0, '0', None, '') else '' for j in range(n))
+        total_value = row.get('total', '')
+        vals.extend(['' if total_value in (0, '0') else total_value, '', ''])
+        for col,val in enumerate(vals,1):
+            cell=ws.cell(i,col,val)
+            cell.border=border
+            cell.font=Font(name='Courier New',size=7)
+            cell.alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=col==2)
+        spec_lines = str(row.get('specification', '')).splitlines() or ['']
+        chars_per_line = max(12, int(spec_width * 1.35))
+        wrapped_lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line) for line in spec_lines)
+        ws.row_dimensions[i].height = max(18, min(240, 10 * wrapped_lines + 6))
+    for i in range(7+len(rows[:64]),70):
+        for c in range(1,last_col+1):
+            ws.cell(i,c).border=border
+            ws.cell(i,c).font=Font(name='Courier New',size=7)
+        ws.row_dimensions[i].height=15
+    # Keep worksheet view focused on the equipment list. Document metadata is
+    # printed in the page header/footer when the user presses Ctrl+P.
+    ws.oddHeader.center.text = "&B Equipment List &B"
+    ws.oddHeader.right.text = f"Doc.No.: {payload.get('document_no','SI EA/CS/FR/EG/015')}\\nRev.No.: {payload.get('revision','1.0')}  Eff.Dt: {payload.get('effective_date','17/07/2026')}"
+    ws.oddHeader.right.size = 7
+    ws.oddFooter.left.text = f"Client: {header_data.get('client','')}  |  Sales Ref: {header_data.get('sales_ref','')}\\nDescription: {payload.get('description','')}  |  WO: {header_data.get('wo','')}  |  Drawing: {header_data.get('drawing','')}"
+    ws.oddFooter.center.text = f"Prepared by: {header_data.get('prep_by','')}  |  Qty: {payload.get('qty','')}  |  ESD: {header_data.get('esd','')}"
+    ws.oddFooter.right.text = "Page &P of &N"
+    ws.oddFooter.left.size = 7
+    ws.oddFooter.center.size = 7
+    ws.oddFooter.right.size = 7
+    ws.print_area=f'A1:{__import__("openpyxl").utils.get_column_letter(last_col)}76'
+    return wb
+
+def export_combined_pdf(payload):
+    out=io.BytesIO()
+    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=6*mm,bottomMargin=20*mm)
+    styles=getSampleStyleSheet()
+    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=6,leading=7,alignment=TA_CENTER)
+    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.2,leading=4.8,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
+    center=ParagraphStyle('combinedcenter',parent=cell,alignment=TA_CENTER)
+    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,fontSize=4.0,leading=4.5)
+    feeders=payload.get('feeders') or []
+    rows=payload.get('rows') or []
+    n=max(1,len(feeders))
+    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head),''] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
+    data.append(['','','',Paragraph('QTY.',head)]+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
+    data.append(['','','','']+[Paragraph(str(f.get('quantity') or f.get('qty') or 1),center) for f in feeders]+['','',''])
+    for row in rows[:64]:
+        spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
+        qs=row.get('feeder_quantities') or []
+        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] not in (0, '0', None, '') else ''),center) for i in range(n)]+[Paragraph('' if row.get('total') in (0, '0') else str(row.get('total') or ''),center),'',''])
+    available=200*mm
+    fixed=[8*mm,66*mm,25*mm,9*mm,12*mm,10*mm,10*mm]
+    # Allocate a little more space to long feeder labels, while keeping the
+    # complete table inside landscape A4. Paragraph cells wrap and expand rows.
+    remaining=max(8*mm, available-sum(fixed))
+    feeder_labels=[len(str(f.get('name',''))) for f in feeders]
+    weights=[max(1.0,min(2.0,length/10.0)) for length in feeder_labels]
+    weight_sum=sum(weights) or n
+    feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
+    widths=[fixed[0],fixed[1],fixed[2],fixed[3]]+feeder_widths+[fixed[4],fixed[5],fixed[6]]
+    tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
+    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
+    # A compact first-row group label and feeder-specific second/third header rows.
+    tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
+    story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
+    h=payload.get('header',{})
+    def footer(canvas, doc_obj):
+        canvas.saveState()
+        w,hp=doc_obj.pagesize
+        y=8*mm
+        canvas.setFont('Helvetica',6.5)
+        canvas.drawString(6*mm,y+7*mm,f"Client: {h.get('client','')}  Sales Ref: {h.get('sales_ref','')}")
+        canvas.drawString(6*mm,y+4*mm,f"Description: {payload.get('description','')}  WO: {h.get('wo','')}  Drawing: {h.get('drawing','')}")
+        canvas.drawString(6*mm,y+1*mm,f"Prepared by: {h.get('prep_by','')}  Qty: {payload.get('qty','')}  ESD: {h.get('esd','')}")
+        canvas.restoreState()
+    doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
+    out.seek(0)
+    return out
+
+@app.get('/')
+def root():
+    return {
+        'service': 'ELEXORA 2 API',
+        'status': 'running',
+        'health': '/health',
+        'docs': '/docs',
+    }
+
+
+@app.get('/health')
+def health():
+    return {'status':'ok'}
+
+@app.on_event("startup")
+def startup():
+    init_auth_db()
+
+@app.post('/api/auth/signup')
+def signup(payload: AuthRequest):
+    username = payload.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,32}", username):
+        raise HTTPException(status_code=400, detail="Username must be 3-32 characters and use only letters, numbers, dot, underscore or hyphen.")
+    errors = validate_password(payload.password)
+    if errors:
+        raise HTTPException(status_code=400, detail="Password must contain " + ", ".join(errors) + ".")
+    try:
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO users(username,password_hash) VALUES(%s,%s)",
+                (username.lower(), password_hash(payload.password))
+            )
+            conn.commit()
+    except Exception as exc:
+        if getattr(exc, "sqlstate", None) == "23505":
+            raise HTTPException(status_code=409, detail="That username already exists. Please choose another.")
+        raise
+    return {"message":"Account created successfully. You can now sign in."}
+
+@app.post('/api/auth/login')
+def login(payload: AuthRequest):
+    username = payload.username.strip().lower()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id,password_hash,username FROM users WHERE username=%s",
+            (username,)
+        ).fetchone()
+        if not row or not password_ok(payload.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+        token = secrets.token_urlsafe(32)
+        expires = int(datetime.now().timestamp()) + TOKEN_TTL_SECONDS
+        conn.execute(
+            "INSERT INTO sessions(token,user_id,expires_at) VALUES(%s,%s,%s)",
+            (token, row["id"], expires)
+        )
+        conn.commit()
+    return {"token":token,"username":row["username"],"expires_at":expires}
+
+@app.post('/api/auth/logout')
+def logout(authorization: str = Header(default="")):
+    token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if token:
+        with db() as conn:
+            conn.execute("DELETE FROM sessions WHERE token=%s", (token,))
+            conn.commit()
+    return {"message":"Signed out."}
+
+@app.post('/api/bom/preview')
+async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''),esd:str=Form(''),wo:str=Form(''),prep_by:str=Form(''),voltage:str=Form(''),msld:UploadFile=File(...),dis:UploadFile=File(...),user:str=Depends(current_user)):
+ m,d=await msld.read(),await dis.read(); return extract_from_files(m,msld.filename,d,dis.filename,client,sales_ref,drawing,esd,wo,prep_by,voltage)
+
+def export_book(payload):
+ if payload.get('feeders'):
+  return export_combined_book(payload)
+ wb=Workbook(); ws=wb.active; ws.title='BOM'; thin=Side(style='thin'); border=Border(left=thin,right=thin,top=thin,bottom=thin); h=payload.get('header',{}); rows=payload.get('rows',[]); ws.page_setup.orientation='portrait'; ws.page_setup.paperSize=ws.PAPERSIZE_A4; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=1; ws.sheet_properties.pageSetUpPr.fitToPage=True; ws.page_margins.left=.58; ws.page_margins.right=.75; ws.page_margins.top=.60; ws.page_margins.bottom=.55; ws.sheet_view.showGridLines=False
+ for col,width in {'A':12.43,'B':80.99,'C':18.43,'D':10.0,'E':11.87,'F':9.10,'G':5.87,'H':5.87}.items():ws.column_dimensions[col].width=width
+ ws.merge_cells('A1:E2'); ws['A1']='-: Equipment List :-'; ws['A1'].font=Font(name='Courier New',size=10); ws['A1'].alignment=Alignment(horizontal='center',vertical='center'); ws['F1']=f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}'; ws['F1'].alignment=Alignment(horizontal='right',vertical='top',wrap_text=True); ws['F1'].font=Font(name='Arial',size=7); ws.merge_cells('F1:H2'); ws.row_dimensions[1].height=34; ws.row_dimensions[2].height=16
+ for c,v in [('A4','EQPT.NO'),('B4','SPECIFICATION'),('C4','DESIGNATION'),('F4','TOTAL EQPT QTY.'),('G4','MPD'),('H4','AMD')]:ws[c]=v
+ ws.merge_cells('A4:A6'); ws.merge_cells('B4:B6'); ws.merge_cells('C4:C6'); ws.merge_cells('D4:E4'); ws.merge_cells('F4:F6'); ws.merge_cells('G4:G6'); ws.merge_cells('H4:H6'); ws['D4']='FEEDER TYPICAL'; ws['D5']='QTY.'; ws['E5']=payload.get('feeder_name',''); ws['E6']=payload.get('feeder_qty','')
+ for row in range(4,7):
+  for col in range(1,9):ws.cell(row,col).border=border; ws.cell(row,col).alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); ws.cell(row,col).font=Font(name='Courier New',size=10 if row==4 else 9,bold=True)
+ ws.row_dimensions[4].height=23.25; ws.row_dimensions[5].height=18; ws.row_dimensions[6].height=18
+ for i,row in enumerate(rows[:64],7):
+  vals=[row.get('sr',''),row.get('specification',''),row.get('designation',''),' ',row.get('eqpt_qty') if row.get('eqpt_qty') is not None else '',row.get('total') if row.get('total') is not None else '','','']
+  for col,val in enumerate(vals,1):ws.cell(i,col,val).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7); ws.cell(i,col).alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=True if col==2 else False)
+  ws.row_dimensions[i].height=max(15.6,min(180,15.6*max(1,len(row.get('specification_lines',[])))))
+ for i in range(7+len(rows[:64]),70):
+  for col in range(1,9):ws.cell(i,col).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7)
+  ws.row_dimensions[i].height=15.6
+ fr=72; footer_left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]; footer_mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]; footer_right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('','1 of 1')]
+ for i,(label,value) in enumerate(footer_left):
+  ws.cell(fr+i,1,label).font=Font(name='Arial',size=7); ws.cell(fr+i,2,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,1).alignment=Alignment(horizontal='left',vertical='center'); ws.cell(fr+i,2).alignment=Alignment(horizontal='left',vertical='center')
+ for i,(label,value) in enumerate(footer_mid):
+  ws.cell(fr+i,4,label).font=Font(name='Arial',size=7); ws.cell(fr+i,5,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,4).alignment=Alignment(horizontal='left',vertical='center'); ws.cell(fr+i,5).alignment=Alignment(horizontal='left',vertical='center')
+ for i,(label,value) in enumerate(footer_right):
+  ws.cell(fr+i,7,label).font=Font(name='Arial',size=7); ws.cell(fr+i,8,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,7).alignment=Alignment(horizontal='right',vertical='center'); ws.cell(fr+i,8).alignment=Alignment(horizontal='right',vertical='center')
+ ws.print_area='A1:H76'; return wb
+@app.post('/api/bom/export')
+async def export(payload:dict, user:str=Depends(current_user)):
+ wb=export_book(payload);out=io.BytesIO();wb.save(out);out.seek(0);return StreamingResponse(out,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.xlsx'})
+
+class NumberedCanvas:
+    def __init__(self, *args, **kwargs):
+        from reportlab.pdfgen import canvas as pdfcanvas
+        self._canvas = pdfcanvas.Canvas(*args, **kwargs)
+        self._saved_page_states = []
+
+    def __getattr__(self, name):
+        return getattr(self._canvas, name)
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self._canvas.__dict__))
+        self._canvas._startPage()
+
+    def save(self):
+        total = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self._canvas.__dict__.update(state)
+            self._draw_page_number(total)
+            self._canvas.showPage()
+        self._canvas.save()
+
+    def _draw_page_number(self, total):
+        # Page number occupies its own fourth line in the right footer block.
+        w, hp = A4
+        self._canvas.setFont('Helvetica', 6.5)
+        self._canvas.drawRightString(
+            w - 8*mm, 4*mm,
+            f'{self._canvas.getPageNumber()} of {total}'
+        )
+
+
+def export_pdf(payload):
+    if payload.get('feeders'):
+        return export_combined_pdf(payload)
+    out = io.BytesIO()
+    doc = SimpleDocTemplate(
+        out, pagesize=A4,
+        rightMargin=8*mm, leftMargin=8*mm,
+        topMargin=12*mm, bottomMargin=28*mm
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('bomtitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, alignment=TA_CENTER)
+    meta_style = ParagraphStyle('bommeta', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, alignment=TA_RIGHT)
+    cell_style = ParagraphStyle('cell', parent=styles['Normal'], fontName='Helvetica', fontSize=6.3, leading=7.5, spaceAfter=0, spaceBefore=0)
+    cell_center = ParagraphStyle('cellcenter', parent=cell_style, alignment=TA_CENTER)
+    head_style = ParagraphStyle('head', parent=cell_style, fontName='Helvetica-Bold', alignment=TA_CENTER, leading=8)
+    h = payload.get('header', {})
+    rows = payload.get('rows', [])
+    story = [
+        Paragraph('-: Equipment List :-', title_style),
+        Spacer(1, 4*mm),
+    ]
+    data = [
+        [Paragraph('EQPT.NO',head_style), Paragraph('SPECIFICATION',head_style), Paragraph('DESIGNATION',head_style),
+         Paragraph('FEEDER TYPICAL',head_style), '', Paragraph('TOTAL<br/>EQPT<br/>QTY.',head_style), Paragraph('MPD',head_style), Paragraph('AMD',head_style)],
+        ['', '', '', Paragraph('QTY.',head_style), Paragraph(str(payload.get('feeder_name','')),head_style), '', '', ''],
+        ['', '', '', '', Paragraph(str(payload.get('feeder_qty','')),cell_center), '', '', '']
+    ]
+    for row in rows[:64]:
+        spec = row.get('specification','') or ''
+        data.append([
+            Paragraph(str(row.get('sr','') or ''), cell_center),
+            Paragraph(str(spec).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>'), cell_style),
+            Paragraph(str(row.get('designation','') or ''), cell_center),
+            '',
+            Paragraph(str(row.get('eqpt_qty','') or ''), cell_center),
+            Paragraph(str(row.get('total','') or ''), cell_center),
+            '', ''
+        ])
+    col_widths=[16*mm, 81*mm, 24*mm, 17*mm, 20*mm, 18*mm, 9*mm, 9*mm]
+    tbl=Table(data,colWidths=col_widths,repeatRows=3)
+    tbl.setStyle(TableStyle([
+        ('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),
+        ('SPAN',(3,0),(4,0)),('SPAN',(5,0),(5,2)),('SPAN',(6,0),(6,2)),('SPAN',(7,0),(7,2)),
+        ('GRID',(0,0),(-1,-1),0.45,colors.black),
+        ('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('ALIGN',(0,0),(-1,2),'CENTER'),
+        ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+        ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
+    ]))
+    story.append(tbl)
+
+    def footer(canvas, doc_obj):
+        canvas.saveState()
+        w, hp = A4
+        y = 11*mm
+        canvas.setFont('Helvetica', 6.5)
+
+        # Fixed footer zones matching the supplied BOM: left / center / right.
+        left_x = 8*mm
+        mid_x = 82*mm
+        right_x = 164*mm
+        line_step = 3*mm
+
+        left=[
+            ('Item No.','100'),
+            ('Client :',h.get('client','')),
+            ('Sales Ref No.:',h.get('sales_ref','')),
+            ('DATE :',datetime.now().strftime('%d.%m.%Y'))
+        ]
+        mid=[
+            ('Description :',payload.get('description','')),
+            ('W.O. No.:',h.get('wo','')),
+            ('Drg. No.:',h.get('drawing',''))
+        ]
+        right=[
+            ('PRE.BY :',h.get('prep_by','')),
+            ('Qty.:',payload.get('qty','')),
+            ('ESD No.:',h.get('esd',''))
+        ]
+
+        for i,(label,value) in enumerate(left):
+            canvas.drawString(left_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
+        # Keep the center footer inside its own zone so it cannot overlap the right block.
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        mid_max_x = right_x - 5*mm
+        for i,(label,value) in enumerate(mid):
+            text_value = (label+' '+str(value)).strip()
+            max_width = mid_max_x - mid_x
+            while stringWidth(text_value, 'Helvetica', 6.5) > max_width and len(text_value) > len(label) + 4:
+                text_value = text_value[:-2].rstrip() + '...'
+            canvas.drawString(mid_x, y+(2.5-i)*line_step, text_value)
+
+        for i,(label,value) in enumerate(right):
+            canvas.drawString(right_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
+        canvas.restoreState()
+    doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
+    out.seek(0)
+    return out
+
+@app.post('/api/bom/export-pdf')
+async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
+    out=export_pdf(payload)
+    return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
+, token, re.IGNORECASE):
+                    break
+                if stop_pattern and re.search(stop_pattern, token, re.IGNORECASE):
+                    break
+                picked.append(token)
+            value=clean_value(' '.join(picked)).strip(' :-')
+            if value: return value
+        return ''
+    dis_customer = footer_value(r'Client')
+    if not dis_customer:
+        dis_customer = footer_value(r'Customer')
+    dis_wo = footer_value(r'W\.?O\.?', stop_pattern=r'Item|Qty')
+    if not dis_wo:
+        dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
+    dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
+    def distinct(values):
+        return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
+    customers = distinct([x['customer'] for x in results])
+    work_orders = distinct([x['work_order'] for x in results])
+    voltages = distinct([x['voltage'] for x in results])
+    mismatches = []
+    if len({x.casefold() for x in customers}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different customer names.')
+    if len({x.casefold() for x in work_orders}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different work order numbers.')
+    if len({x.casefold() for x in voltages}) > 1:
+        mismatches.append('The uploaded MSLD PDFs contain different voltage values.')
+    entered = {'customer': clean_value(client), 'work_order': clean_value(wo), 'voltage': clean_value(voltage)}
+    for label, values, dis_value, entered_value in [
+        ('Customer name', customers, dis_customer, entered['customer']),
+        ('Work order number', work_orders, dis_wo, entered['work_order']),
+        ('Voltage', voltages, dis_voltage, entered['voltage'])
+    ]:
+        all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
+        if label == 'Voltage':
+            all_values = distinct([norm_voltage(value) or value for value in all_values])
+        if len({x.casefold() for x in all_values}) > 1:
+            mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
+
+    # Do not silently proceed when a PDF header field could not be extracted.
+    # The existing verification modal displays these messages and lets the user
+    # review the extracted values before choosing whether to continue.
+    for item in results:
+        if not item['work_order']:
+            mismatches.append(f"Work order number could not be read from MSLD: {item['filename']}.")
+        if not item['voltage']:
+            mismatches.append(f"Voltage could not be read from MSLD: {item['filename']}.")
+    if not dis_wo:
+        mismatches.append(f"Work order number could not be read from DIS: {dis_name}.")
+    if not dis_voltage:
+        mismatches.append(f"Voltage could not be read from DIS: {dis_name}.")
+    return {
+        'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
+        'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
+        'mismatches': list(dict.fromkeys(mismatches)),
+        'dis': {'filename': dis_name, 'customer': dis_customer, 'work_order': dis_wo, 'voltage': clean_value(dis_voltage)}
+    }
+
+@app.post('/api/bom/preview-multiple')
+async def preview_multiple(
+    client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
+    esd: str = Form(''), wo: str = Form(''), prep_by: str = Form(''),
+    voltage: str = Form(''), mslds: list[UploadFile] = File(...),
+    dis: UploadFile = File(...), user: str = Depends(current_user)
+):
+    if not mslds:
+        raise HTTPException(status_code=400, detail='Upload at least one MSLD PDF.')
+    dis_name = dis.filename or 'DIS.pdf'
+    dis_bytes = await dis.read()
+    items = []
+    filenames = []
+    for upload in mslds:
+        filename = upload.filename or 'MSLD.pdf'
+        items.append((await upload.read(), filename))
+        filenames.append(filename)
+    result = extract_multiple_from_files(items, dis_bytes, dis_name, client, sales_ref, drawing, esd, wo, prep_by, voltage)
+    import json
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO bom_history (username, customer_name, work_order_no, voltage, msld_files, dis_filename, row_count)
+               VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)""",
+            (user, str(client or result.get('header', {}).get('client', '')), str(wo or result.get('header', {}).get('wo', '')),
+             str(voltage or ''), json.dumps(filenames), dis_name, len(result.get('rows') or []))
+        )
+        conn.commit()
+    return result
+
+
+
+
+class SiemensLookupRequest(BaseModel):
+    mlfb: str
+
+
+@app.post('/api/siemens/product-lookup')
+def siemens_product_lookup(payload: SiemensLookupRequest, user: str = Depends(current_user)):
+    """POC: live lookup of a supplied 7SJ66 MLFB on Siemens Industry Mall."""
+    return lookup_siemens_product(payload.mlfb)
+
+@app.get('/api/admin/bom-history')
+def admin_bom_history(user: str = Depends(require_admin)):
+    with db() as conn:
+        total = conn.execute("SELECT COUNT(*) AS total FROM bom_history").fetchone()['total']
+        rows = conn.execute(
+            """SELECT id, username, customer_name, work_order_no, voltage, msld_files,
+                      dis_filename, row_count, created_at
+               FROM bom_history ORDER BY created_at DESC LIMIT 500"""
+        ).fetchall()
+    return {'total_generated': total, 'history': rows}
+
+def export_combined_book(payload):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'BOM'
+    thin = Side(style='thin')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_data = payload.get('header', {})
+    feeders = payload.get('feeders') or []
+    rows = payload.get('rows') or []
+    n = max(1, len(feeders))
+    qty_col = 4
+    feeder_start_col = 5
+    total_col = feeder_start_col + n
+    mpd_col, amd_col = total_col + 1, total_col + 2
+    last_col = amd_col
+    ws.page_setup.orientation = 'landscape'
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins.left = .25
+    ws.page_margins.right = .25
+    ws.page_margins.top = .45
+    ws.page_margins.bottom = .4
+    ws.sheet_view.showGridLines = False
+    spec_width = max(36, min(78, max([max((len(line) for line in str(r.get('specification','')).splitlines()), default=0) for r in rows] + [36]) * 0.75))
+    designation_width = max(14, min(26, max([len(str(r.get('designation',''))) for r in rows] + [14]) * 0.9))
+    feeder_width = max(10, min(18, max([len(str(f.get('name',''))) for f in feeders] + [8]) * 0.9))
+    widths = [9, spec_width, designation_width, 9] + [feeder_width] * n + [13, 7, 7]
+    for col, width in enumerate(widths, 1):
+        ws.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width = width
+    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=min(3, last_col))
+    ws.cell(1, 1, '-: Equipment List :-')
+    ws.cell(1, 1).font = Font(name='Courier New', size=10)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center', vertical='center')
+    meta_col = max(4, last_col - 2)
+    ws.merge_cells(start_row=1, start_column=meta_col, end_row=2, end_column=last_col)
+    ws.cell(1, meta_col, f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}')
+    ws.cell(1, meta_col).font = Font(name='Arial', size=7)
+    ws.cell(1, meta_col).alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
+    ws.row_dimensions[1].height = 34
+    ws.row_dimensions[2].height = 16
+    for col, label in [(1,'EQPT.NO'),(2,'SPECIFICATION'),(3,'DESIGNATION'),(total_col,'TOTAL EQPT QTY.'),(mpd_col,'MPD'),(amd_col,'AMD')]:
+        ws.cell(4, col, label)
+    for col in [1,2,3,total_col,mpd_col,amd_col]:
+        ws.merge_cells(start_row=4, start_column=col, end_row=6, end_column=col)
+    ws.merge_cells(start_row=5, start_column=qty_col, end_row=6, end_column=qty_col)
+    ws.cell(5,qty_col,'QTY.')
+    ws.merge_cells(start_row=4, start_column=feeder_start_col, end_row=4, end_column=feeder_start_col+n-1)
+    ws.cell(4,feeder_start_col,'FEEDER TYPICAL')
+    for idx, feeder in enumerate(feeders):
+        col=feeder_start_col+idx
+        ws.cell(5,col,feeder.get('name',''))
+        ws.cell(6,col,feeder.get('quantity') or feeder.get('qty') or 1)
+    for r in range(4,7):
+        for c in range(1,last_col+1):
+            cell=ws.cell(r,c)
+            cell.border=border
+            cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            cell.font=Font(name='Courier New',size=8,bold=True)
+    ws.row_dimensions[4].height=23
+    ws.row_dimensions[5].height=18
+    ws.row_dimensions[6].height=28
+    for i,row in enumerate(rows[:64],7):
+        quantities = row.get('feeder_quantities') or []
+        vals=[row.get('sr',''),row.get('specification',''),row.get('designation','')]
+        vals.append('')
+        vals.extend(quantities[j] if j < len(quantities) and quantities[j] not in (0, '0', None, '') else '' for j in range(n))
+        total_value = row.get('total', '')
+        vals.extend(['' if total_value in (0, '0') else total_value, '', ''])
+        for col,val in enumerate(vals,1):
+            cell=ws.cell(i,col,val)
+            cell.border=border
+            cell.font=Font(name='Courier New',size=7)
+            cell.alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=col==2)
+        spec_lines = str(row.get('specification', '')).splitlines() or ['']
+        chars_per_line = max(12, int(spec_width * 1.35))
+        wrapped_lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line) for line in spec_lines)
+        ws.row_dimensions[i].height = max(18, min(240, 10 * wrapped_lines + 6))
+    for i in range(7+len(rows[:64]),70):
+        for c in range(1,last_col+1):
+            ws.cell(i,c).border=border
+            ws.cell(i,c).font=Font(name='Courier New',size=7)
+        ws.row_dimensions[i].height=15
+    # Keep worksheet view focused on the equipment list. Document metadata is
+    # printed in the page header/footer when the user presses Ctrl+P.
+    ws.oddHeader.center.text = "&B Equipment List &B"
+    ws.oddHeader.right.text = f"Doc.No.: {payload.get('document_no','SI EA/CS/FR/EG/015')}\\nRev.No.: {payload.get('revision','1.0')}  Eff.Dt: {payload.get('effective_date','17/07/2026')}"
+    ws.oddHeader.right.size = 7
+    ws.oddFooter.left.text = f"Client: {header_data.get('client','')}  |  Sales Ref: {header_data.get('sales_ref','')}\\nDescription: {payload.get('description','')}  |  WO: {header_data.get('wo','')}  |  Drawing: {header_data.get('drawing','')}"
+    ws.oddFooter.center.text = f"Prepared by: {header_data.get('prep_by','')}  |  Qty: {payload.get('qty','')}  |  ESD: {header_data.get('esd','')}"
+    ws.oddFooter.right.text = "Page &P of &N"
+    ws.oddFooter.left.size = 7
+    ws.oddFooter.center.size = 7
+    ws.oddFooter.right.size = 7
+    ws.print_area=f'A1:{__import__("openpyxl").utils.get_column_letter(last_col)}76'
+    return wb
+
+def export_combined_pdf(payload):
+    out=io.BytesIO()
+    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=6*mm,bottomMargin=20*mm)
+    styles=getSampleStyleSheet()
+    title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=6,leading=7,alignment=TA_CENTER)
+    cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.2,leading=4.8,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
+    center=ParagraphStyle('combinedcenter',parent=cell,alignment=TA_CENTER)
+    head=ParagraphStyle('combinedhead',parent=cell,fontName='Helvetica-Bold',alignment=TA_CENTER,fontSize=4.0,leading=4.5)
+    feeders=payload.get('feeders') or []
+    rows=payload.get('rows') or []
+    n=max(1,len(feeders))
+    data=[[Paragraph('EQPT.NO',head),Paragraph('SPECIFICATION',head),Paragraph('DESIGNATION',head),''] + [Paragraph('FEEDER<br/>TYPICAL',head) if i==0 else '' for i in range(n)] + [Paragraph('TOTAL<br/>EQPT QTY.',head),Paragraph('MPD',head),Paragraph('AMD',head)]]
+    data.append(['','','',Paragraph('QTY.',head)]+[Paragraph(str(f.get('name','')),head) for f in feeders]+['','',''])
+    data.append(['','','','']+[Paragraph(str(f.get('quantity') or f.get('qty') or 1),center) for f in feeders]+['','',''])
+    for row in rows[:64]:
+        spec=str(row.get('specification','') or '').replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>')
+        qs=row.get('feeder_quantities') or []
+        data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] not in (0, '0', None, '') else ''),center) for i in range(n)]+[Paragraph('' if row.get('total') in (0, '0') else str(row.get('total') or ''),center),'',''])
+    available=200*mm
+    fixed=[8*mm,66*mm,25*mm,9*mm,12*mm,10*mm,10*mm]
+    # Allocate a little more space to long feeder labels, while keeping the
+    # complete table inside landscape A4. Paragraph cells wrap and expand rows.
+    remaining=max(8*mm, available-sum(fixed))
+    feeder_labels=[len(str(f.get('name',''))) for f in feeders]
+    weights=[max(1.0,min(2.0,length/10.0)) for length in feeder_labels]
+    weight_sum=sum(weights) or n
+    feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
+    widths=[fixed[0],fixed[1],fixed[2],fixed[3]]+feeder_widths+[fixed[4],fixed[5],fixed[6]]
+    tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
+    spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
+    # A compact first-row group label and feeder-specific second/third header rows.
+    tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
+    story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
+    h=payload.get('header',{})
+    def footer(canvas, doc_obj):
+        canvas.saveState()
+        w,hp=doc_obj.pagesize
+        y=8*mm
+        canvas.setFont('Helvetica',6.5)
+        canvas.drawString(6*mm,y+7*mm,f"Client: {h.get('client','')}  Sales Ref: {h.get('sales_ref','')}")
+        canvas.drawString(6*mm,y+4*mm,f"Description: {payload.get('description','')}  WO: {h.get('wo','')}  Drawing: {h.get('drawing','')}")
+        canvas.drawString(6*mm,y+1*mm,f"Prepared by: {h.get('prep_by','')}  Qty: {payload.get('qty','')}  ESD: {h.get('esd','')}")
+        canvas.restoreState()
+    doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
+    out.seek(0)
+    return out
+
+@app.get('/')
+def root():
+    return {
+        'service': 'ELEXORA 2 API',
+        'status': 'running',
+        'health': '/health',
+        'docs': '/docs',
+    }
+
+
+@app.get('/health')
+def health():
+    return {'status':'ok'}
+
+@app.on_event("startup")
+def startup():
+    init_auth_db()
+
+@app.post('/api/auth/signup')
+def signup(payload: AuthRequest):
+    username = payload.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,32}", username):
+        raise HTTPException(status_code=400, detail="Username must be 3-32 characters and use only letters, numbers, dot, underscore or hyphen.")
+    errors = validate_password(payload.password)
+    if errors:
+        raise HTTPException(status_code=400, detail="Password must contain " + ", ".join(errors) + ".")
+    try:
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO users(username,password_hash) VALUES(%s,%s)",
+                (username.lower(), password_hash(payload.password))
+            )
+            conn.commit()
+    except Exception as exc:
+        if getattr(exc, "sqlstate", None) == "23505":
+            raise HTTPException(status_code=409, detail="That username already exists. Please choose another.")
+        raise
+    return {"message":"Account created successfully. You can now sign in."}
+
+@app.post('/api/auth/login')
+def login(payload: AuthRequest):
+    username = payload.username.strip().lower()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id,password_hash,username FROM users WHERE username=%s",
+            (username,)
+        ).fetchone()
+        if not row or not password_ok(payload.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+        token = secrets.token_urlsafe(32)
+        expires = int(datetime.now().timestamp()) + TOKEN_TTL_SECONDS
+        conn.execute(
+            "INSERT INTO sessions(token,user_id,expires_at) VALUES(%s,%s,%s)",
+            (token, row["id"], expires)
+        )
+        conn.commit()
+    return {"token":token,"username":row["username"],"expires_at":expires}
+
+@app.post('/api/auth/logout')
+def logout(authorization: str = Header(default="")):
+    token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if token:
+        with db() as conn:
+            conn.execute("DELETE FROM sessions WHERE token=%s", (token,))
+            conn.commit()
+    return {"message":"Signed out."}
+
+@app.post('/api/bom/preview')
+async def preview(client:str=Form(''),sales_ref:str=Form(''),drawing:str=Form(''),esd:str=Form(''),wo:str=Form(''),prep_by:str=Form(''),voltage:str=Form(''),msld:UploadFile=File(...),dis:UploadFile=File(...),user:str=Depends(current_user)):
+ m,d=await msld.read(),await dis.read(); return extract_from_files(m,msld.filename,d,dis.filename,client,sales_ref,drawing,esd,wo,prep_by,voltage)
+
+def export_book(payload):
+ if payload.get('feeders'):
+  return export_combined_book(payload)
+ wb=Workbook(); ws=wb.active; ws.title='BOM'; thin=Side(style='thin'); border=Border(left=thin,right=thin,top=thin,bottom=thin); h=payload.get('header',{}); rows=payload.get('rows',[]); ws.page_setup.orientation='portrait'; ws.page_setup.paperSize=ws.PAPERSIZE_A4; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=1; ws.sheet_properties.pageSetUpPr.fitToPage=True; ws.page_margins.left=.58; ws.page_margins.right=.75; ws.page_margins.top=.60; ws.page_margins.bottom=.55; ws.sheet_view.showGridLines=False
+ for col,width in {'A':12.43,'B':80.99,'C':18.43,'D':10.0,'E':11.87,'F':9.10,'G':5.87,'H':5.87}.items():ws.column_dimensions[col].width=width
+ ws.merge_cells('A1:E2'); ws['A1']='-: Equipment List :-'; ws['A1'].font=Font(name='Courier New',size=10); ws['A1'].alignment=Alignment(horizontal='center',vertical='center'); ws['F1']=f'Doc.No.: {payload.get("document_no","SI EA/CS/FR/EG/015")}\nRev.No.: {payload.get("revision","1.0")}, Eff.Dt: {payload.get("effective_date","17/07/2026")}\nCreated By: {payload.get("created_by","EA CS ENGG")}'; ws['F1'].alignment=Alignment(horizontal='right',vertical='top',wrap_text=True); ws['F1'].font=Font(name='Arial',size=7); ws.merge_cells('F1:H2'); ws.row_dimensions[1].height=34; ws.row_dimensions[2].height=16
+ for c,v in [('A4','EQPT.NO'),('B4','SPECIFICATION'),('C4','DESIGNATION'),('F4','TOTAL EQPT QTY.'),('G4','MPD'),('H4','AMD')]:ws[c]=v
+ ws.merge_cells('A4:A6'); ws.merge_cells('B4:B6'); ws.merge_cells('C4:C6'); ws.merge_cells('D4:E4'); ws.merge_cells('F4:F6'); ws.merge_cells('G4:G6'); ws.merge_cells('H4:H6'); ws['D4']='FEEDER TYPICAL'; ws['D5']='QTY.'; ws['E5']=payload.get('feeder_name',''); ws['E6']=payload.get('feeder_qty','')
+ for row in range(4,7):
+  for col in range(1,9):ws.cell(row,col).border=border; ws.cell(row,col).alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); ws.cell(row,col).font=Font(name='Courier New',size=10 if row==4 else 9,bold=True)
+ ws.row_dimensions[4].height=23.25; ws.row_dimensions[5].height=18; ws.row_dimensions[6].height=18
+ for i,row in enumerate(rows[:64],7):
+  vals=[row.get('sr',''),row.get('specification',''),row.get('designation',''),' ',row.get('eqpt_qty') if row.get('eqpt_qty') is not None else '',row.get('total') if row.get('total') is not None else '','','']
+  for col,val in enumerate(vals,1):ws.cell(i,col,val).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7); ws.cell(i,col).alignment=Alignment(horizontal='center' if col!=2 else 'left',vertical='center',wrap_text=True if col==2 else False)
+  ws.row_dimensions[i].height=max(15.6,min(180,15.6*max(1,len(row.get('specification_lines',[])))))
+ for i in range(7+len(rows[:64]),70):
+  for col in range(1,9):ws.cell(i,col).border=border; ws.cell(i,col).font=Font(name='Courier New',size=7)
+  ws.row_dimensions[i].height=15.6
+ fr=72; footer_left=[('Item No.','100'),('Client :',h.get('client','')),('Sales Ref No.:',h.get('sales_ref','')),('DATE :',datetime.now().strftime('%d.%m.%Y'))]; footer_mid=[('Description :',payload.get('description','')),('W.O. No.:',h.get('wo','')),('Drg. No.:',h.get('drawing',''))]; footer_right=[('PRE.BY :',h.get('prep_by','')),('Qty.:',payload.get('qty','')),('ESD No.:',h.get('esd','')),('','1 of 1')]
+ for i,(label,value) in enumerate(footer_left):
+  ws.cell(fr+i,1,label).font=Font(name='Arial',size=7); ws.cell(fr+i,2,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,1).alignment=Alignment(horizontal='left',vertical='center'); ws.cell(fr+i,2).alignment=Alignment(horizontal='left',vertical='center')
+ for i,(label,value) in enumerate(footer_mid):
+  ws.cell(fr+i,4,label).font=Font(name='Arial',size=7); ws.cell(fr+i,5,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,4).alignment=Alignment(horizontal='left',vertical='center'); ws.cell(fr+i,5).alignment=Alignment(horizontal='left',vertical='center')
+ for i,(label,value) in enumerate(footer_right):
+  ws.cell(fr+i,7,label).font=Font(name='Arial',size=7); ws.cell(fr+i,8,value).font=Font(name='Arial',size=7)
+  ws.cell(fr+i,7).alignment=Alignment(horizontal='right',vertical='center'); ws.cell(fr+i,8).alignment=Alignment(horizontal='right',vertical='center')
+ ws.print_area='A1:H76'; return wb
+@app.post('/api/bom/export')
+async def export(payload:dict, user:str=Depends(current_user)):
+ wb=export_book(payload);out=io.BytesIO();wb.save(out);out.seek(0);return StreamingResponse(out,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=ELEXORA_BOM.xlsx'})
+
+class NumberedCanvas:
+    def __init__(self, *args, **kwargs):
+        from reportlab.pdfgen import canvas as pdfcanvas
+        self._canvas = pdfcanvas.Canvas(*args, **kwargs)
+        self._saved_page_states = []
+
+    def __getattr__(self, name):
+        return getattr(self._canvas, name)
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self._canvas.__dict__))
+        self._canvas._startPage()
+
+    def save(self):
+        total = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self._canvas.__dict__.update(state)
+            self._draw_page_number(total)
+            self._canvas.showPage()
+        self._canvas.save()
+
+    def _draw_page_number(self, total):
+        # Page number occupies its own fourth line in the right footer block.
+        w, hp = A4
+        self._canvas.setFont('Helvetica', 6.5)
+        self._canvas.drawRightString(
+            w - 8*mm, 4*mm,
+            f'{self._canvas.getPageNumber()} of {total}'
+        )
+
+
+def export_pdf(payload):
+    if payload.get('feeders'):
+        return export_combined_pdf(payload)
+    out = io.BytesIO()
+    doc = SimpleDocTemplate(
+        out, pagesize=A4,
+        rightMargin=8*mm, leftMargin=8*mm,
+        topMargin=12*mm, bottomMargin=28*mm
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('bomtitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, alignment=TA_CENTER)
+    meta_style = ParagraphStyle('bommeta', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, alignment=TA_RIGHT)
+    cell_style = ParagraphStyle('cell', parent=styles['Normal'], fontName='Helvetica', fontSize=6.3, leading=7.5, spaceAfter=0, spaceBefore=0)
+    cell_center = ParagraphStyle('cellcenter', parent=cell_style, alignment=TA_CENTER)
+    head_style = ParagraphStyle('head', parent=cell_style, fontName='Helvetica-Bold', alignment=TA_CENTER, leading=8)
+    h = payload.get('header', {})
+    rows = payload.get('rows', [])
+    story = [
+        Paragraph('-: Equipment List :-', title_style),
+        Spacer(1, 4*mm),
+    ]
+    data = [
+        [Paragraph('EQPT.NO',head_style), Paragraph('SPECIFICATION',head_style), Paragraph('DESIGNATION',head_style),
+         Paragraph('FEEDER TYPICAL',head_style), '', Paragraph('TOTAL<br/>EQPT<br/>QTY.',head_style), Paragraph('MPD',head_style), Paragraph('AMD',head_style)],
+        ['', '', '', Paragraph('QTY.',head_style), Paragraph(str(payload.get('feeder_name','')),head_style), '', '', ''],
+        ['', '', '', '', Paragraph(str(payload.get('feeder_qty','')),cell_center), '', '', '']
+    ]
+    for row in rows[:64]:
+        spec = row.get('specification','') or ''
+        data.append([
+            Paragraph(str(row.get('sr','') or ''), cell_center),
+            Paragraph(str(spec).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('\n','<br/>'), cell_style),
+            Paragraph(str(row.get('designation','') or ''), cell_center),
+            '',
+            Paragraph(str(row.get('eqpt_qty','') or ''), cell_center),
+            Paragraph(str(row.get('total','') or ''), cell_center),
+            '', ''
+        ])
+    col_widths=[16*mm, 81*mm, 24*mm, 17*mm, 20*mm, 18*mm, 9*mm, 9*mm]
+    tbl=Table(data,colWidths=col_widths,repeatRows=3)
+    tbl.setStyle(TableStyle([
+        ('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),
+        ('SPAN',(3,0),(4,0)),('SPAN',(5,0),(5,2)),('SPAN',(6,0),(6,2)),('SPAN',(7,0),(7,2)),
+        ('GRID',(0,0),(-1,-1),0.45,colors.black),
+        ('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('ALIGN',(0,0),(-1,2),'CENTER'),
+        ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+        ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
+    ]))
+    story.append(tbl)
+
+    def footer(canvas, doc_obj):
+        canvas.saveState()
+        w, hp = A4
+        y = 11*mm
+        canvas.setFont('Helvetica', 6.5)
+
+        # Fixed footer zones matching the supplied BOM: left / center / right.
+        left_x = 8*mm
+        mid_x = 82*mm
+        right_x = 164*mm
+        line_step = 3*mm
+
+        left=[
+            ('Item No.','100'),
+            ('Client :',h.get('client','')),
+            ('Sales Ref No.:',h.get('sales_ref','')),
+            ('DATE :',datetime.now().strftime('%d.%m.%Y'))
+        ]
+        mid=[
+            ('Description :',payload.get('description','')),
+            ('W.O. No.:',h.get('wo','')),
+            ('Drg. No.:',h.get('drawing',''))
+        ]
+        right=[
+            ('PRE.BY :',h.get('prep_by','')),
+            ('Qty.:',payload.get('qty','')),
+            ('ESD No.:',h.get('esd',''))
+        ]
+
+        for i,(label,value) in enumerate(left):
+            canvas.drawString(left_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
+        # Keep the center footer inside its own zone so it cannot overlap the right block.
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        mid_max_x = right_x - 5*mm
+        for i,(label,value) in enumerate(mid):
+            text_value = (label+' '+str(value)).strip()
+            max_width = mid_max_x - mid_x
+            while stringWidth(text_value, 'Helvetica', 6.5) > max_width and len(text_value) > len(label) + 4:
+                text_value = text_value[:-2].rstrip() + '...'
+            canvas.drawString(mid_x, y+(2.5-i)*line_step, text_value)
+
+        for i,(label,value) in enumerate(right):
+            canvas.drawString(right_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+
+        canvas.restoreState()
+    doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
+    out.seek(0)
+    return out
+
+@app.post('/api/bom/export-pdf')
+async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
+    out=export_pdf(payload)
+    return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
+, '', v)
+ return v if v in {'6.6','11','33'} else ''
 def transform_word(page,word):
  pts=[fitz.Point(word[0],word[1])*page.rotation_matrix,fitz.Point(word[2],word[3])*page.rotation_matrix]
  return {'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':word[4]}
