@@ -616,24 +616,36 @@ def extract_pt_fuse_rating(msld_text, dis_text):
 
 
 def pt_spec(pt_text, msld_text, dis_text):
-    """Format PT equipment using its own fixed BOM structure; CT handling stays unchanged."""
+    """Format PT description from MSLD/DIS using the approved fixed layout."""
+    source = clean_value((pt_text or '') + ' ' + (msld_text or ''))
     rated_voltage = extract_rated_voltage(dis_text)
     if not rated_voltage:
-        rated_voltage = first_match(r'\b(?:PT\s*)?([0-9]+(?:\.[0-9]+)?\s*kV)\b', pt_text)
+        rated_voltage = first_match(r'\b([0-9]+(?:\.[0-9]+)?\s*kV)\b', source)
         rated_voltage = re.sub(r'\s+', '', rated_voltage)
+    # PT make is sourced from DIS.
     make = extract_ct_make(dis_text)
     if not make:
         make = first_match(r'\b([A-Z][A-Z0-9.&/-]*(?:\s*/\s*[A-Z][A-Z0-9.&/-]*)?)\s+MAKE\b', clean_value(dis_text))
         make = re.sub(r'\s*/\s*', '/', make)
-    fuse = extract_pt_fuse_rating(pt_text, dis_text)
+    # Preserve transformer type from MSLD when it is present.
+    transformer_type = first_match(
+        r'(POTENTIAL\s+TRANSFORMERS?\s+IN\s+.+?(?:DRAWOUT\s+TYPE|TYPE))',
+        source
+    )
+    if not transformer_type:
+        transformer_type = 'POTENTIAL TRANSFORMERS IN CAST RESIN EPOXY CASE (DRAWOUT TYPE)'
+    transformer_type = clean_value(transformer_type).upper()
     cores = extract_pt_core_lines(pt_text)
     core_count = len(cores) or 3
     core_word = {1: 'SINGLE', 2: 'TWO', 3: 'THREE'}.get(core_count, str(core_count))
+    bil = extract_bil(dis_text)
+    if bil:
+        bil = bil.upper()
     lines = [
         f'PT {rated_voltage}' if rated_voltage else 'PT',
         f'{make.upper()} MAKE' if make else 'MAKE',
-        'POTENTIAL TRANSFORMERS IN CAST RESIN EPOXY CASE (DRAWOUT TYPE)',
-        f'- SINGLE PHASE WITH IN BUILT PRIMARY FUSE OF {fuse}' if fuse else '- SINGLE PHASE WITH IN BUILT PRIMARY FUSE OF',
+        transformer_type,
+        '- SINGLE PHASE WITH IN BUILT PRIMARY FUSE OF 3.15A',
         f'{core_word} CORE PT, AS PER IS/IEC STANDARD',
         'AS GIVEN BELOW:-',
     ]
@@ -642,12 +654,11 @@ def pt_spec(pt_text, msld_text, dis_text):
     lines.extend([
         '- RATED FREQUENCY: 50Hz',
         '- VF: 1.2COUNT/1.9 FOR 8 HOURS',
-        '- BIL: 7.2/20/60kvp',
+        f'- BIL: {bil}' if bil else '- BIL:',
         'INSULATION CLASS:- B',
         'SUITABLE FOR 8BK80 (OD) - 800mm WIDTH PANEL',
     ])
     return lines
-
 
 def ct_spec(ct_text, dis_text):
     ct_code=generate_ct_code(ct_text)
@@ -700,8 +711,8 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    pt_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=pt_spec(pt_row_text, msld_text, dis_text)
    spec='\\n'.join(spec_lines)
-   editable_fields=[]
-   editable_indices=[]
+   editable_fields=['INSULATION CLASS:- B']
+   editable_indices=[12]
   elif r['master_code']=='MCB':
    mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
    if mcb_item:
