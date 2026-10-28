@@ -1061,6 +1061,19 @@ async def check_msld_customers(
             all_values = distinct([norm_voltage(value) or value for value in all_values])
         if len({x.casefold() for x in all_values}) > 1:
             mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
+
+    # Do not silently proceed when a PDF header field could not be extracted.
+    # The existing verification modal displays these messages and lets the user
+    # review the extracted values before choosing whether to continue.
+    for item in results:
+        if not item['work_order']:
+            mismatches.append(f"Work order number could not be read from MSLD: {item['filename']}.")
+        if not item['voltage']:
+            mismatches.append(f"Voltage could not be read from MSLD: {item['filename']}.")
+    if not dis_wo:
+        mismatches.append(f"Work order number could not be read from DIS: {dis_name}.")
+    if not dis_voltage:
+        mismatches.append(f"Voltage could not be read from DIS: {dis_name}.")
     return {
         'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
         'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
