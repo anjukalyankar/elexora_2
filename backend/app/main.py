@@ -615,6 +615,24 @@ def extract_pt_fuse_rating(msld_text, dis_text):
     return ''
 
 
+def extract_pt_panel_suitability(msld_text):
+    """Read PT panel suitability from the MSLD bottom 'WORK:' note."""
+    text = re.sub(r'\s+', ' ', msld_text or '').strip()
+    patterns = [
+        r'\bWORK\s*:\s*(.*?)(?=\s{2,}|$)',
+        r'\bWORK\s*[-:]\s*(.*?)(?=\s+(?:DRAWING|SHEET|PAGE)\b|$)',
+        r'\bSUITABLE\s+FOR\s+(.+?)(?=\s+(?:DRAWING|SHEET|PAGE)\b|$)',
+    ]
+    for pattern in patterns:
+        value = first_match(pattern, text)
+        if not value:
+            continue
+        value = clean_value(value).strip(' :-')
+        if value:
+            return value.upper()
+    return ''
+
+
 def pt_spec(pt_text, msld_text, dis_text):
     """Format PT description from MSLD/DIS using the approved fixed layout."""
     source = clean_value((pt_text or '') + ' ' + (msld_text or ''))
@@ -638,9 +656,11 @@ def pt_spec(pt_text, msld_text, dis_text):
     cores = extract_pt_core_lines(pt_text)
     core_count = len(cores) or 3
     core_word = {1: 'SINGLE', 2: 'TWO', 3: 'THREE'}.get(core_count, str(core_count))
+    frequency = extract_frequency(dis_text)
     bil = extract_bil(dis_text)
     if bil:
         bil = bil.upper()
+    panel = extract_pt_panel_suitability(msld_text)
     lines = [
         f'PT {rated_voltage}' if rated_voltage else 'PT',
         f'{make.upper()} MAKE' if make else 'MAKE',
@@ -652,11 +672,11 @@ def pt_spec(pt_text, msld_text, dis_text):
     for index, value in enumerate(cores, 1):
         lines.append(f'- CORE {index}: {value}')
     lines.extend([
-        '- RATED FREQUENCY: 50Hz',
+        f'- RATED FREQUENCY: {frequency}' if frequency else '- RATED FREQUENCY:',
         '- VF: 1.2COUNT/1.9 FOR 8 HOURS',
         f'- BIL: {bil}' if bil else '- BIL:',
         'INSULATION CLASS:- B',
-        'SUITABLE FOR 8BK80 (OD) - 800mm WIDTH PANEL',
+        f'SUITABLE FOR {panel}' if panel else 'SUITABLE FOR',
     ])
     return lines
 
