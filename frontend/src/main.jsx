@@ -1,7 +1,7 @@
 import React,{useState}from'react';
 import{createRoot}from'react-dom/client';
 import'./style.css';
-const API=(import.meta.env.VITE_API_URL||'http://localhost:8000').replace(/\/$/,'');const TEMPLATE_ROWS=64;
+const API=(import.meta.env.VITE_API_URL||'https://elexora-2.onrender.com').replace(/\/$/,'');const TEMPLATE_ROWS=64;
 function Login({onLogin}){
   const [mode,setMode]=useState('login'),[u,setU]=useState(''),[p,setP]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[err,setErr]=useState('');
   const submit=async()=>{
@@ -15,7 +15,7 @@ function Login({onLogin}){
         const d=await r.json();
         if(!r.ok)throw Error(d.detail||'Could not create account.');
         setMsg(d.message);setMode('login');setConfirm('');
-      }catch(e){setErr(e.message)}finally{setBusy(false)}
+      }catch(e){setErr(e instanceof TypeError?'Cannot reach ELEXORA server. Please check your connection and try again.':e.message)}finally{setBusy(false)}
     }else{
       setBusy(true);
       try{
