@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "description": "Configurable family prefixes, official manufacturer domains, query templates, and field aliases. Add families here without changing verifier code.",
+  "official_domains": [
+    "siemens.com",
+    "siemens.de",
+    "siemens.co.uk",
+    "siemens.in",
+    "siemens.com.au",
+    "siemens.com.sg",
+    "siemens.com.cn",
+    "siemens.com.mx",
+    "siemens.com.br",
+    "siemens-energy.com",
+    "siemens-mobility.com",
+    "siemens.com.tr",
+    "siemens.pl",
+    "siemens.fr",
+    "siemens.es",
+    "siemens.it",
+    "siemens.nl",
+    "siemens.ch",
+    "siemens.at",
+    "siemens.ca",
+    "siemens.us"
+  ],
+  "families": {
+    "7SJ66": {
+      "mode": "existing_selection_chart",
+      "queries": [],
+      "field_aliases": {}
+    },
+    "7SR": {
+      "mode": "web_evidence",
+      "queries": [
+        "\"{mlfb}\" Siemens Reyrolle numerical protection relay",
+        "\"{mlfb}\" site:siemens.com",
+        "\"{mlfb}\" manual OR datasheet OR catalog"
+      ],
+      "field_aliases": {
+        "ct_secondary": [
+          "CT secondary",
+          "current input",
+          "rated current",
+          "1 A",
+          "5 A"
+        ],
+        "vt_secondary": [
+          "VT secondary",
+          "voltage input",
+          "rated voltage"
+        ],
+        "auxiliary_supply": [
+          "auxiliary supply",
+          "supply voltage",
+          "rated supply"
+        ],
+        "hardware": [
+          "binary inputs",
+          "binary outputs",
+          "BI",
+          "BO"
+        ],
+        "protection_functions": [
+          "protection functions",
+          "ANSI",
+          "functions"
+        ]
+      }
+    },
+    "7SD": {
+      "mode": "web_evidence",
+      "queries": [
+        "\"{mlfb}\" Siemens SIPROTEC line differential relay",
+        "\"{mlfb}\" site:siemens.com",
+        "\"{mlfb}\" manual OR datasheet OR catalog"
+      ],
+      "field_aliases": {
+        "ct_secondary": [
+          "CT secondary",
+          "current input",
+          "rated current",
+          "1 A",
+          "5 A"
+        ],
+        "vt_secondary": [
+          "VT secondary",
+          "voltage input",
+          "rated voltage"
+        ],
+        "auxiliary_supply": [
+          "auxiliary supply",
+          "supply voltage",
+          "rated supply"
+        ],
+        "hardware": [
+          "binary inputs",
+          "binary outputs",
+          "BI",
+          "BO"
+        ],
+        "protection_functions": [
+          "protection functions",
+          "ANSI",
+          "functions"
+        ]
+      }
+    }
+  }
+}
