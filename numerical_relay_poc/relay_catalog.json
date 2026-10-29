@@ -41,9 +41,7 @@
         "ct_secondary": [
           "CT secondary",
           "current input",
-          "rated current",
-          "1 A",
-          "5 A"
+          "rated current"
         ],
         "vt_secondary": [
           "VT secondary",
@@ -79,9 +77,7 @@
         "ct_secondary": [
           "CT secondary",
           "current input",
-          "rated current",
-          "1 A",
-          "5 A"
+          "rated current"
         ],
         "vt_secondary": [
           "VT secondary",
