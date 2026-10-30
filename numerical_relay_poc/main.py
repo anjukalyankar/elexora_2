@@ -336,25 +336,43 @@ RELAY_TAG_PATTERN = re.compile(r"\bK\d{1,3}[A-Z]?\b", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
-    """Find Siemens relay MLFBs and their nearby drawing text without guessing."""
+    """Find MLFBs and associate tags from nearby PDF-extracted drawing lines.
+
+    PDF extraction can place tag, description and MLFB on separate lines.
+    Associate a tag only when the nearest tag in a small local window is
+    unambiguous; otherwise leave it blank for human review.
+    """
     lines = text.splitlines()
-    found: dict[str, dict[str, str]] = {}
+    occurrences: list[dict[str, Any]] = []
     for line_index, line in enumerate(lines):
         for match in MLFB_PATTERN.finditer(line):
-            mlfb = match.group(0).upper()
-            start = max(0, line_index - 1)
-            end = min(len(lines), line_index + 2)
-            context = "\n".join(lines[start:end])
-            # Prefer the nearest relay tag on the MLFB's own extracted line.
-            tags = list(RELAY_TAG_PATTERN.finditer(line))
-            tag = min(tags, key=lambda item: abs(item.start() - match.start())).group(0).upper() if tags else ""
-            key = normalize(mlfb)
-            if key not in found:
-                found[key] = {"mlfb": mlfb, "tag": tag, "context": context}
-            elif tag and not found[key]["tag"]:
-                found[key]["tag"] = tag
+            occurrences.append({"mlfb": match.group(0).upper(), "line": line_index, "start": match.start()})
+    found: dict[str, dict[str, str]] = {}
+    for occurrence in occurrences:
+        idx = occurrence["line"]
+        start, end = max(0, idx - 3), min(len(lines), idx + 4)
+        context = "\\n".join(lines[start:end])
+        nearby: list[tuple[int, str]] = []
+        for tag_line_idx in range(start, end):
+            for tag_match in RELAY_TAG_PATTERN.finditer(lines[tag_line_idx]):
+                distance = abs(tag_line_idx - idx) * 100
+                if tag_line_idx == idx:
+                    distance += abs(tag_match.start() - occurrence["start"])
+                nearby.append((distance, tag_match.group(0).upper()))
+        tag = ""
+        if nearby:
+            nearby.sort(key=lambda item: item[0])
+            best_distance = nearby[0][0]
+            best_tags = {value for distance, value in nearby if distance == best_distance}
+            if best_distance <= 300 and len(best_tags) == 1:
+                tag = next(iter(best_tags))
+        mlfb = occurrence["mlfb"]
+        key = normalize(mlfb)
+        if key not in found:
+            found[key] = {"mlfb": mlfb, "tag": tag, "context": context}
+        elif tag and not found[key]["tag"]:
+            found[key]["tag"] = tag
     return list(found.values())
-
 
 def _extract_specs(context: str) -> dict[str, Any]:
     """Extract only explicit MSLD values from the local relay row/context."""
@@ -385,6 +403,8 @@ def _verify_extracted_relay(item: dict[str, Any]) -> dict[str, Any]:
     mlfb = item["mlfb"]
     family = family_for(mlfb)
     specs = item["msld_specs"]
+    if mlfb.startswith("CTUM"):
+        return {"status": "separate_scope", "equipment_type": "AUXILIARY_RELAY", "family": "AUXILIARY_RELAY", "mlfb": mlfb, "checks": [], "message": "CTUM auxiliary relays are classified separately and are not sent through numerical protection relay verification.", "production_bom_modified": False}
     if family == "7SJ66":
         return {
             "status": "delegated", "family": family, "mlfb": mlfb,
@@ -436,7 +456,8 @@ async def verify_msld(file: UploadFile = File(...)):
         extracted.append({
             "tag": row["tag"] or None,
             "mlfb": row["mlfb"],
-            "family": family_for(row["mlfb"]),
+            "family": "AUXILIARY_RELAY" if row["mlfb"].startswith("CTUM") else family_for(row["mlfb"]),
+            "equipment_type": "AUXILIARY_RELAY" if row["mlfb"].startswith("CTUM") else "NUMERICAL_PROTECTION_RELAY",
             "msld_specs": _extract_specs(row["context"]),
             "extraction_context": row["context"][:1200],
         })
@@ -456,7 +477,8 @@ async def verify_msld(file: UploadFile = File(...)):
         "extraction_method": "selectable PDF text via pypdf; no OCR",
         "limitations": [
             "Scanned/image-only drawings are not OCR processed.",
-            "Only Siemens 7SJ, 7SR and 7SD MLFB patterns are currently detected automatically.",
+            "Only Siemens 7SJ, 7SR, 7SD and CTUM15 patterns are currently detected automatically.",
+            "CTUM auxiliary relays are classified separately; auxiliary-relay product verification is not implemented.",
             "Extracted values are limited to text near each MLFB; review the extraction_context before relying on results.",
             "7SJ66 is delegated to the existing selection-chart workflow.",
             "Candidate confirmation is not final engineering approval.",
