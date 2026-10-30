@@ -1,6 +1,6 @@
 import unittest
 
-from main import family_for, is_official, field_evidence, _extract_mlfb_contexts, _extract_specs
+from main import family_for, is_official, field_evidence, _extract_mlfb_contexts, _extract_specs, _verify_extracted_relay
 
 
 class RelayPocTests(unittest.TestCase):
@@ -55,6 +55,26 @@ class RelayPocTests(unittest.TestCase):
         self.assertEqual(specs["ct_secondary"], "1A")
         self.assertEqual(specs["auxiliary_supply"], "110V DC")
         self.assertEqual(specs["protection_functions"], ["50", "51", "50N", "51N"])
+
+    def test_extracts_tag_from_adjacent_pdf_text_line(self):
+        text = "K51\\nNUMERICAL PROTECTION RELAY\\n7SR5111-1AA11-1AA0\\nCT SEC: 1A\\nAUX. SUPPLY: 110V DC"
+        rows = _extract_mlfb_contexts(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["tag"], "K51")
+
+    def test_extracts_multiple_relay_tags_independently(self):
+        text = "K51\\n7SR5111-1AA11-1AA0\\n\\nK87L\\n7SD8011-5EB90-1FA0+LOA\\n\\nK50G\\nCTUM15"
+        rows = _extract_mlfb_contexts(text)
+        self.assertEqual([row["tag"] for row in rows], ["K51", "K87L", "K50G"])
+        self.assertEqual([row["mlfb"] for row in rows], [
+            "7SR5111-1AA11-1AA0", "7SD8011-5EB90-1FA0+LOA", "CTUM15"
+        ])
+
+    def test_ctum_is_classified_outside_numerical_verification(self):
+        result = _verify_extracted_relay({"mlfb": "CTUM15", "msld_specs": {"auxiliary_supply": "110V DC"}})
+        self.assertEqual(result["status"], "separate_scope")
+        self.assertEqual(result["equipment_type"], "AUXILIARY_RELAY")
+        self.assertFalse(result["production_bom_modified"])
 
 
 if __name__ == "__main__":
