@@ -57,13 +57,13 @@ class RelayPocTests(unittest.TestCase):
         self.assertEqual(specs["protection_functions"], ["50", "51", "50N", "51N"])
 
     def test_extracts_tag_from_adjacent_pdf_text_line(self):
-        text = "K51\\nNUMERICAL PROTECTION RELAY\\n7SR5111-1AA11-1AA0\\nCT SEC: 1A\\nAUX. SUPPLY: 110V DC"
+        text = "K51\nNUMERICAL PROTECTION RELAY\n7SR5111-1AA11-1AA0\nCT SEC: 1A\nAUX. SUPPLY: 110V DC"
         rows = _extract_mlfb_contexts(text)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["tag"], "K51")
 
     def test_extracts_multiple_relay_tags_independently(self):
-        text = "K51\\n7SR5111-1AA11-1AA0\\n\\nK87L\\n7SD8011-5EB90-1FA0+LOA\\n\\nK50G\\nCTUM15"
+        text = "K51\n7SR5111-1AA11-1AA0\n\nK87L\n7SD8011-5EB90-1FA0+LOA\n\nK50G\nCTUM15"
         rows = _extract_mlfb_contexts(text)
         self.assertEqual([row["tag"] for row in rows], ["K51", "K87L", "K50G"])
         self.assertEqual([row["mlfb"] for row in rows], [
@@ -82,7 +82,7 @@ class RelayPocTests(unittest.TestCase):
         self.assertTrue(_contains_exact_mlfb("7SD8011-5EB90-1FA0+LOA", "Article 7SD8011-5EB90-1FA0+LOA"))
 
     def test_same_mlfb_at_two_tags_is_not_merged(self):
-        text = "K51\\n7SR5111-1AA11-1AA0\\nK52\\n7SR5111-1AA11-1AA0"
+        text = "K51\n7SR5111-1AA11-1AA0\nK52\n7SR5111-1AA11-1AA0"
         rows = _extract_mlfb_contexts(text)
         self.assertEqual(len(rows), 2)
         self.assertEqual([row["tag"] for row in rows], ["K51", "K52"])
