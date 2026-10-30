@@ -38,6 +38,10 @@ class RelayPocTests(unittest.TestCase):
         result = field_evidence("protection_functions", "50, 51, 50N", "Protection functions 50, 51", ["ANSI"])
         self.assertEqual(result["status"], "not_confirmed")
 
+    def test_list_value_is_normalized_for_field_confirmation(self):
+        result = field_evidence("protection_functions", ["50", "51", "50N"], "Protection functions 50, 51, 50N", ["ANSI"])
+        self.assertEqual(result["status"], "matched")
+
 
 if __name__ == "__main__":
     unittest.main()
