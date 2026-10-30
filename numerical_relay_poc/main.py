@@ -77,7 +77,7 @@ def _field_contexts(field: str, corpus: str, aliases: list[str]) -> list[str]:
     contexts: list[str] = []
     # Keep evidence local to the label: do not combine a label from one snippet
     # with an unrelated value elsewhere in the search results.
-    for sentence in re.split(r"[\\n;|]+|(?<=[.!?])\\s+", corpus):
+    for sentence in re.split(r"[\n;|]+|(?<=[.!?])\s+", corpus):
         normalized_sentence = normalize(sentence)
         if any(normalize(label) and normalize(label) in normalized_sentence for label in labels):
             contexts.append(sentence)
@@ -93,9 +93,9 @@ def _explicit_alternatives(field: str, expected: Any, contexts: list[str]) -> li
     expected_n = normalize(expected)
     candidates: list[str] = []
     if field == "ct_secondary":
-        patterns = [r"\\b\\d+(?:\\.\\d+)?\\s*(?:mA|A)\\b"]
+        patterns = [r"\b\d+(?:\.\d+)?\s*(?:mA|A)\b"]
     elif field in {"auxiliary_supply", "vt_secondary"}:
-        patterns = [r"\\b\\d+(?:\\.\\d+)?\\s*(?:kV|V)\\b(?:\\s*(?:AC|DC))?", r"\\b(?:AC|DC)\\b"]
+        patterns = [r"\b\d+(?:\.\d+)?\s*(?:kV|V)\b(?:\s*(?:AC|DC))?", r"\b(?:AC|DC)\b"]
     else:
         return []
     for context in contexts:
@@ -183,7 +183,7 @@ def verify(request: VerifyRequest):
     unique = _collect_results(_queries_for(mlfb, family, request.max_searches))
     official = [item for item in unique if item["official_source"]]
     exact_match = any(normalize(mlfb) in normalize(result_text(item)) for item in official)
-    evidence_corpus = "\\n".join(result_text(item) for item in official)
+    evidence_corpus = "\n".join(result_text(item) for item in official)
     family_config = CATALOG.get("families", {}).get(family, {})
     checks = [field_evidence(field, expected, evidence_corpus,
                              family_config.get("field_aliases", {}).get(field, []))
