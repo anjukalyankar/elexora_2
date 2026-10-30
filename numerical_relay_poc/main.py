@@ -234,6 +234,12 @@ def field_evidence(field: str, expected: Any, corpus: str, aliases: list[str]) -
             "evidence_values": alternatives, "evidence_excerpt": combined[:700], "note": note}
 
 
+def _contains_exact_mlfb(mlfb: str, text: str) -> bool:
+    """Require a complete MLFB token; a longer/different variant is not a match."""
+    target = normalize(mlfb)
+    return any(normalize(match.group(0)) == target for match in MLFB_PATTERN.finditer(text))
+
+
 def _collect_results(queries: list[str]) -> list[dict[str, Any]]:
     collected = []
     for query in queries:
@@ -295,12 +301,14 @@ def verify(request: VerifyRequest):
 
     if not official:
         status, reason = "insufficient_evidence", "No results from configured official manufacturer domains were found."
+    elif not parsed_documents:
+        status, reason = "insufficient_evidence", "Official Siemens pages/PDFs could not be parsed; search snippets alone cannot verify a product."
     elif not exact_match:
-        status, reason = "insufficient_evidence", "Official-domain results did not explicitly contain the complete requested MLFB."
+        status, reason = "insufficient_evidence", "Parsed official Siemens documents did not contain the exact complete requested MLFB; similar variants are not accepted."
     elif mismatches:
         status, reason = "mismatch", "An explicit scalar technical contradiction was found beside a matching field label."
     elif all_matched:
-        status, reason = "candidate_confirmed", "Exact MLFB and every supplied MSLD field appear in official-source search text; human review is still required."
+        status, reason = "candidate_confirmed", "Exact MLFB and every supplied MSLD field appear in parsed official Siemens documents; human review is still required."
     else:
         status, reason = "insufficient_evidence", "Official search text does not explicitly confirm every supplied MSLD field."
 
@@ -312,13 +320,13 @@ def verify(request: VerifyRequest):
             | {"extracted_text_length": len(item.get("text", ""))}
             for item in documents
         ],
-        "evidence_method": "official Siemens snippets plus bounded official HTML/PDF text extraction",
+        "evidence_method": "parsed official Siemens HTML/PDF text only; search snippets used for discovery, not verification",
         "other_search_results": [item for item in unique if not item["official_source"]],
         "searched_result_count": len(unique),
         "limitations": [
             "Only configured Siemens domains are fetched; redirects outside those domains are blocked.",
             "PDF text extraction may miss scanned/image-only tables; OCR is not enabled.",
-            "Search snippets are discovery evidence; parsed documents must still be checked for exact product variant and revision.",
+            "Search snippets are discovery-only and never count as verification evidence; exact complete MLFB must appear in parsed official Siemens HTML/PDF text.",
             "Mismatch detection is intentionally limited to clear CT-current and auxiliary/VT-voltage contradictions next to a field label.",
             "Complex hardware/protection-list contradictions are not inferred unless exact values are explicit in relevant field context.",
             "candidate_confirmed is a candidate for human review, not final engineering approval.",
