@@ -365,7 +365,7 @@ def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
     for occurrence in occurrences:
         idx = occurrence["line"]
         start, end = max(0, idx - 3), min(len(lines), idx + 4)
-        context = "\\n".join(lines[start:end])
+        context = "\n".join(lines[start:end])
         nearby: list[tuple[int, str]] = []
         for tag_line_idx in range(start, end):
             for tag_match in RELAY_TAG_PATTERN.finditer(lines[tag_line_idx]):
