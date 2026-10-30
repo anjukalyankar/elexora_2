@@ -28,7 +28,17 @@ Then open `http://127.0.0.1:8010/docs`.
 
 - `GET /health` — service status and whether Serper is configured.
 - `POST /search` — discovery-only search results; not a validation decision.
-- `POST /verify` — evidence-based candidate check.
+- `POST /verify` — evidence-based candidate check for one MLFB and supplied MSLD fields.
+- `POST /verify-msld` — multipart PDF upload; extracts supported Siemens 7SJ/7SR/7SD relay MLFBs and nearby specifications, then verifies each relay. Upload field name: `file`.
+
+PDF upload example:
+
+```bash
+curl -X POST "http://127.0.0.1:8010/verify-msld" \\
+  -F "file=@MSLD_2(1).pdf"
+```
+
+The endpoint accepts selectable-text PDFs up to 20 MB and 100 pages. Scanned/image-only PDFs return a clear OCR-required response; OCR is not enabled. 7SJ66 remains delegated to the existing selection-chart workflow.
 
 Example request:
 
