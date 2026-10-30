@@ -294,11 +294,12 @@ def verify(request: VerifyRequest):
     official = [item for item in unique if item["official_source"]]
     documents = _retrieve_official_documents(unique)
     parsed_documents = [item for item in documents if item.get("status") == "parsed"]
-    exact_match = (any(normalize(mlfb) in normalize(result_text(item)) for item in official)
-                   or any(normalize(mlfb) in normalize(item.get("text", "")) for item in parsed_documents))
-    evidence_corpus = "\n".join([*(result_text(item) for item in official), _document_corpus(documents)])
+    document_corpus = _document_corpus(documents)
+    # Search snippets are discovery-only. Identity and specification checks
+    # must be grounded in successfully parsed official Siemens documents.
+    exact_match = _contains_exact_mlfb(mlfb, document_corpus)
     family_config = CATALOG.get("families", {}).get(family, {})
-    checks = [field_evidence(field, expected, evidence_corpus,
+    checks = [field_evidence(field, expected, document_corpus,
                              family_config.get("field_aliases", {}).get(field, []))
               for field, expected in request.msld_specs.items()]
     mismatches = [check for check in checks if check["status"] == "mismatch"]
@@ -315,7 +316,7 @@ def verify(request: VerifyRequest):
     elif all_matched:
         status, reason = "candidate_confirmed", "Exact MLFB and every supplied MSLD field appear in parsed official Siemens documents; human review is still required."
     else:
-        status, reason = "insufficient_evidence", "Official search text does not explicitly confirm every supplied MSLD field."
+        status, reason = "insufficient_evidence", "Parsed official Siemens documents do not explicitly confirm every supplied MSLD field."
 
     return {
         "status": status, "family": family, "mlfb": mlfb, "reason": reason,
