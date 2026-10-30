@@ -227,7 +227,8 @@ def field_evidence(field: str, expected: Any, corpus: str, aliases: list[str]) -
         status = "not_confirmed"
         note = "Official-source search text does not explicitly confirm this requested value."
         alternatives = []
-    return {"field": field, "requested": expected, "status": status, "evidence_values": alternatives, "note": note}
+    return {"field": field, "requested": expected, "status": status,
+            "evidence_values": alternatives, "evidence_excerpt": combined[:700], "note": note}
 
 
 def _collect_results(queries: list[str]) -> list[dict[str, Any]]:
