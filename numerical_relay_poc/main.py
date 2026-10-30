@@ -11,7 +11,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
@@ -80,6 +80,9 @@ def result_text(result: dict[str, Any]) -> str:
 
 MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
 MAX_DOCUMENTS = 8
+MAX_MSLD_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_MSLD_PAGES = 100
+MAX_MSLD_TEXT_CHARS = 500000
 
 
 class _PageTextParser(HTMLParser):
@@ -323,6 +326,143 @@ def verify(request: VerifyRequest):
         "production_bom_modified": False,
     }
 
+
+
+MLFB_PATTERN = re.compile(
+    r"\b7(?:SJ|SR|SD)\d{4,6}(?:-[A-Z0-9]{3,6}){1,4}(?:\+[A-Z0-9]{1,6})?\b",
+    re.IGNORECASE,
+)
+RELAY_TAG_PATTERN = re.compile(r"\bK\d{1,3}[A-Z]?\b", re.IGNORECASE)
+
+
+def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
+    """Find Siemens relay MLFBs and their nearby drawing text without guessing."""
+    lines = text.splitlines()
+    found: dict[str, dict[str, str]] = {}
+    for line_index, line in enumerate(lines):
+        for match in MLFB_PATTERN.finditer(line):
+            mlfb = match.group(0).upper()
+            start = max(0, line_index - 1)
+            end = min(len(lines), line_index + 2)
+            context = "\n".join(lines[start:end])
+            # Prefer the nearest relay tag on the MLFB's own extracted line.
+            tags = list(RELAY_TAG_PATTERN.finditer(line))
+            tag = min(tags, key=lambda item: abs(item.start() - match.start())).group(0).upper() if tags else ""
+            key = normalize(mlfb)
+            if key not in found:
+                found[key] = {"mlfb": mlfb, "tag": tag, "context": context}
+            elif tag and not found[key]["tag"]:
+                found[key]["tag"] = tag
+    return list(found.values())
+
+
+def _extract_specs(context: str) -> dict[str, Any]:
+    """Extract only explicit MSLD values from the local relay row/context."""
+    specs: dict[str, Any] = {}
+    patterns = {
+        "ct_secondary": r"\bCT\s*(?:SEC(?:ONDARY)?|INPUT)\s*[:\-]?\s*(\d+(?:\.\d+)?\s*A)\b",
+        "auxiliary_supply": r"\b(?:AUX(?:ILIARY)?\.?\s*(?:SUPPLY|VOLTAGE)|AUX\.?\s*SUPPLY)\s*[:\-]?\s*(\d+(?:\.\d+)?\s*V\s*(?:AC|DC)?)",
+        "hardware": r"\bHARDWARE\s*[:\-]?\s*([^;\n]+?)(?=\s{2,}[A-Z][A-Z .()/+-]{3,}\s*:|$)",
+        "case_size": r"\b(?:CASE(?:\s*SIZE)?|SIZE)\s*[:\-]?\s*([A-Z0-9/ -]+?)(?=\s{2,}[A-Z][A-Z .()/+-]{3,}\s*:|$)",
+        "communication": r"\b(?:WITH\s+)?(MODBUS\s*(?:RS485|TCP)?|PROFIBUS|IEC\s*61850(?:\s*RJ45)?)\b",
+    }
+    for field, pattern in patterns.items():
+        match = re.search(pattern, context, flags=re.IGNORECASE)
+        if match:
+            specs[field] = re.sub(r"\s+", " ", match.group(1)).strip(" ,.;")
+    protection = re.search(r"\[([0-9A-ZN(), /\-]+)\]", context, flags=re.IGNORECASE)
+    if protection:
+        codes = re.findall(r"\d{2,3}[A-Z]?(?:\([A-Z]\))?", protection.group(1).upper())
+        if codes:
+            specs["protection_functions"] = codes
+    hardware = specs.get("hardware", "")
+    if hardware:
+        specs["hardware"] = re.sub(r"\s+", " ", hardware).strip()
+    return specs
+
+
+def _verify_extracted_relay(item: dict[str, Any]) -> dict[str, Any]:
+    mlfb = item["mlfb"]
+    family = family_for(mlfb)
+    specs = item["msld_specs"]
+    if family == "7SJ66":
+        return {
+            "status": "delegated", "family": family, "mlfb": mlfb,
+            "message": "Use the existing 7SJ66 selection-chart extraction and validation path; this POC does not alter it.",
+            "checks": [], "production_bom_modified": False,
+        }
+    if family not in {"7SR", "7SD"}:
+        return {"status": "unsupported_family", "family": family, "mlfb": mlfb,
+                "checks": [], "production_bom_modified": False}
+    request = VerifyRequest(mlfb=mlfb, msld_specs=specs)
+    result = verify(request)
+    return result
+
+
+@app.post("/verify-msld")
+async def verify_msld(file: UploadFile = File(...)):
+    """Upload one MSLD PDF, extract relay MLFB/spec rows, then verify each supported relay."""
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+    if not filename.endswith(".pdf") and content_type != "application/pdf":
+        raise HTTPException(status_code=415, detail="Upload an MSLD PDF file.")
+    raw = await file.read(MAX_MSLD_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_MSLD_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="PDF exceeds the 20 MB upload limit.")
+    if not raw.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid PDF.")
+    try:
+        reader = PdfReader(BytesIO(raw), strict=False)
+        if len(reader.pages) > MAX_MSLD_PAGES:
+            raise HTTPException(status_code=413, detail=f"PDF exceeds the {MAX_MSLD_PAGES}-page processing limit.")
+        page_text = [(page.extract_text() or "") for page in reader.pages]
+        extracted_text = "\n".join(page_text)[:MAX_MSLD_TEXT_CHARS]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {type(exc).__name__}") from exc
+    if not extracted_text.strip():
+        raise HTTPException(status_code=422, detail="No selectable text found. Scanned/image-only MSLDs need OCR before verification.")
+    relay_rows = _extract_mlfb_contexts(extracted_text)
+    if not relay_rows:
+        return {
+            "status": "no_supported_mlfb_found", "filename": file.filename,
+            "pages_read": len(reader.pages), "relays": [],
+            "message": "No 7SJ/7SR/7SD Siemens relay MLFB was detected in the selectable PDF text. Scanned drawings may require OCR.",
+            "production_bom_modified": False,
+        }
+    extracted = []
+    for row in relay_rows:
+        extracted.append({
+            "tag": row["tag"] or None,
+            "mlfb": row["mlfb"],
+            "family": family_for(row["mlfb"]),
+            "msld_specs": _extract_specs(row["context"]),
+            "extraction_context": row["context"][:1200],
+        })
+    results = []
+    for item in extracted:
+        try:
+            verification = _verify_extracted_relay(item)
+        except HTTPException as exc:
+            verification = {"status": "verification_error", "detail": exc.detail}
+        results.append({
+            "tag": item["tag"], "mlfb": item["mlfb"], "family": item["family"],
+            "msld_specs": item["msld_specs"], "verification": verification,
+        })
+    return {
+        "status": "processed", "filename": file.filename, "pages_read": len(reader.pages),
+        "relay_count": len(results), "relays": results,
+        "extraction_method": "selectable PDF text via pypdf; no OCR",
+        "limitations": [
+            "Scanned/image-only drawings are not OCR processed.",
+            "Only Siemens 7SJ, 7SR and 7SD MLFB patterns are currently detected automatically.",
+            "Extracted values are limited to text near each MLFB; review the extraction_context before relying on results.",
+            "7SJ66 is delegated to the existing selection-chart workflow.",
+            "Candidate confirmation is not final engineering approval.",
+        ],
+        "production_bom_modified": False,
+    }
 
 @app.post("/search")
 def search(request: VerifyRequest):
