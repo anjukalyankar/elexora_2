@@ -4,12 +4,16 @@ from __future__ import annotations
 import json
 import os
 import re
+from html.parser import HTMLParser
+from io import BytesIO
+from urllib.parse import urljoin, urlparse
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 
 app = FastAPI(
     title="ELEXORA Numerical Relay Verification POC",
@@ -25,7 +29,7 @@ with open(CONFIG_PATH, "r", encoding="utf-8") as f:
 
 class VerifyRequest(BaseModel):
     mlfb: str = Field(min_length=1, max_length=100)
-    msld_specs: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    msld_specs: dict[str, str | int | float | bool | list[str]] = Field(default_factory=dict)
     msld_text: str | None = Field(default=None, max_length=50000)
     max_searches: int = Field(default=3, ge=1, le=4)
 
@@ -72,6 +76,96 @@ def result_text(result: dict[str, Any]) -> str:
     return " ".join(str(result.get(k, "")) for k in ("title", "snippet", "description"))
 
 
+
+
+MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
+MAX_DOCUMENTS = 8
+
+
+class _PageTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+        self.links: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in {"script", "style", "noscript", "svg"}:
+            self._skip += 1
+        if tag == "a" and attrs.get("href"):
+            self.links.append(attrs["href"])
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style", "noscript", "svg"} and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data):
+        if not self._skip and data.strip():
+            self.parts.append(data.strip())
+
+
+def _download_official(url: str) -> dict[str, Any]:
+    if not is_official(url, CATALOG.get("official_domains", [])):
+        return {"url": url, "status": "skipped_non_official"}
+    try:
+        req = Request(url, headers={
+            "User-Agent": "ELEXORA-Relay-POC/0.3",
+            "Accept": "application/pdf,text/html;q=0.9,*/*;q=0.1"
+        })
+        with urlopen(req, timeout=20) as response:
+            final_url = response.geturl()
+            if not is_official(final_url, CATALOG.get("official_domains", [])):
+                return {"url": url, "status": "blocked_redirect_outside_official_domain"}
+            content_type = response.headers.get("Content-Type", "").lower()
+            raw = response.read(MAX_DOCUMENT_BYTES + 1)
+        if len(raw) > MAX_DOCUMENT_BYTES:
+            return {"url": final_url, "status": "skipped_too_large"}
+        if "pdf" in content_type or raw[:5] == b"%PDF-":
+            reader = PdfReader(BytesIO(raw))
+            pages = [(page.extract_text() or "") for page in reader.pages[:80]]
+            return {"url": final_url, "status": "parsed", "document_type": "pdf",
+                    "pages_read": len(pages), "text": "\n".join(pages)[:250000]}
+        if "html" in content_type or b"<html" in raw[:1000].lower():
+            parser = _PageTextParser()
+            parser.feed(raw.decode("utf-8", errors="replace"))
+            return {"url": final_url, "status": "parsed", "document_type": "html",
+                    "links": [urljoin(final_url, link) for link in parser.links],
+                    "text": " ".join(parser.parts)[:150000]}
+        return {"url": final_url, "status": "unsupported_content_type", "content_type": content_type}
+    except Exception as exc:
+        return {"url": url, "status": "fetch_or_parse_error", "error": type(exc).__name__}
+
+
+def _retrieve_official_documents(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = [r["url"] for r in results if r.get("official_source")]
+    fetched: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    pdf_candidates: list[str] = []
+    for url in candidates[:MAX_DOCUMENTS]:
+        if url in seen:
+            continue
+        seen.add(url)
+        item = _download_official(url)
+        fetched.append(item)
+        if item.get("status") == "parsed":
+            pdf_candidates.extend(
+                link for link in item.get("links", [])
+                if urlparse(link).path.lower().endswith(".pdf")
+                and is_official(link, CATALOG.get("official_domains", []))
+            )
+    for url in pdf_candidates:
+        if len(fetched) >= MAX_DOCUMENTS or url in seen:
+            continue
+        seen.add(url)
+        fetched.append(_download_official(url))
+    return fetched
+
+
+def _document_corpus(documents: list[dict[str, Any]]) -> str:
+    return "\n".join(item.get("text", "") for item in documents if item.get("status") == "parsed")
+
+
 def _field_contexts(field: str, corpus: str, aliases: list[str]) -> list[str]:
     labels = [field.replace("_", " "), *aliases]
     contexts: list[str] = []
@@ -110,7 +204,8 @@ def _explicit_alternatives(field: str, expected: Any, contexts: list[str]) -> li
 def field_evidence(field: str, expected: Any, corpus: str, aliases: list[str]) -> dict[str, Any]:
     contexts = _field_contexts(field, corpus, aliases)
     combined = " ".join(contexts)
-    expected_n = normalize(expected)
+    expected_text = ", ".join(str(v) for v in expected) if isinstance(expected, list) else str(expected)
+    expected_n = normalize(expected_text)
     value_found = bool(expected_n) and expected_n in normalize(combined)
     if contexts and value_found:
         status = "matched"
@@ -182,8 +277,11 @@ def verify(request: VerifyRequest):
 
     unique = _collect_results(_queries_for(mlfb, family, request.max_searches))
     official = [item for item in unique if item["official_source"]]
-    exact_match = any(normalize(mlfb) in normalize(result_text(item)) for item in official)
-    evidence_corpus = "\n".join(result_text(item) for item in official)
+    documents = _retrieve_official_documents(unique)
+    parsed_documents = [item for item in documents if item.get("status") == "parsed"]
+    exact_match = (any(normalize(mlfb) in normalize(result_text(item)) for item in official)
+                   or any(normalize(mlfb) in normalize(item.get("text", "")) for item in parsed_documents))
+    evidence_corpus = "\n".join([*(result_text(item) for item in official), _document_corpus(documents)])
     family_config = CATALOG.get("families", {}).get(family, {})
     checks = [field_evidence(field, expected, evidence_corpus,
                              family_config.get("field_aliases", {}).get(field, []))
@@ -205,12 +303,20 @@ def verify(request: VerifyRequest):
     return {
         "status": status, "family": family, "mlfb": mlfb, "reason": reason,
         "checks": checks, "official_sources": official,
+        "official_documents": [
+            {k: v for k, v in item.items() if k != "text"}
+            | {"extracted_text_length": len(item.get("text", ""))}
+            for item in documents
+        ],
+        "evidence_method": "official Siemens snippets plus bounded official HTML/PDF text extraction",
         "other_search_results": [item for item in unique if not item["official_source"]],
         "searched_result_count": len(unique),
         "limitations": [
-            "Serper snippets are discovery evidence, not a substitute for official manuals/catalogues.",
+            "Only configured Siemens domains are fetched; redirects outside those domains are blocked.",
+            "PDF text extraction may miss scanned/image-only tables; OCR is not enabled.",
+            "Search snippets are discovery evidence; parsed documents must still be checked for exact product variant and revision.",
             "Mismatch detection is intentionally limited to clear CT-current and auxiliary/VT-voltage contradictions next to a field label.",
-            "Hardware/protection-list contradictions are not inferred by this POC.",
+            "Complex hardware/protection-list contradictions are not inferred unless exact values are explicit in relevant field context.",
             "candidate_confirmed is a candidate for human review, not final engineering approval.",
         ],
         "production_bom_modified": False,
