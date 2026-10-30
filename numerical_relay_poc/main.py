@@ -280,6 +280,11 @@ def health():
 def verify(request: VerifyRequest):
     mlfb = request.mlfb.strip().upper()
     family = family_for(mlfb)
+    if mlfb.startswith("CTUM"):
+        return {"status": "separate_scope", "equipment_type": "AUXILIARY_RELAY",
+                "family": "AUXILIARY_RELAY", "mlfb": mlfb, "checks": [],
+                "message": "CTUM auxiliary relays are outside numerical protection relay verification.",
+                "production_bom_modified": False}
     if family == "7SJ66":
         return {"status": "delegated", "family": family, "mlfb": mlfb,
                 "message": "Use the existing 7SJ66 selection-chart extraction and validation path; this POC does not alter it.",
@@ -375,11 +380,10 @@ def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
             if best_distance <= 300 and len(best_tags) == 1:
                 tag = next(iter(best_tags))
         mlfb = occurrence["mlfb"]
-        key = normalize(mlfb)
-        if key not in found:
-            found[key] = {"mlfb": mlfb, "tag": tag, "context": context}
-        elif tag and not found[key]["tag"]:
-            found[key]["tag"] = tag
+        # Preserve distinct drawing tags even when they use the same MLFB.
+        # Keep untagged repeated occurrences separate rather than merging them.
+        key = f"{normalize(mlfb)}:{tag or idx}"
+        found[key] = {"mlfb": mlfb, "tag": tag, "context": context}
     return list(found.values())
 
 def _extract_specs(context: str) -> dict[str, Any]:
@@ -456,7 +460,7 @@ async def verify_msld(file: UploadFile = File(...)):
         return {
             "status": "no_supported_mlfb_found", "filename": file.filename,
             "pages_read": len(reader.pages), "relays": [],
-            "message": "No 7SJ/7SR/7SD Siemens relay MLFB was detected in the selectable PDF text. Scanned drawings may require OCR.",
+            "message": "No supported Siemens relay MLFB was detected in the selectable PDF text. Scanned drawings may require OCR.",
             "production_bom_modified": False,
         }
     extracted = []
