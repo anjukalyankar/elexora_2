@@ -1,6 +1,6 @@
 import unittest
 
-from main import family_for, is_official, field_evidence, _extract_mlfb_contexts, _extract_specs, _verify_extracted_relay
+from main import family_for, is_official, field_evidence, _extract_mlfb_contexts, _extract_specs, _verify_extracted_relay, _contains_exact_mlfb
 
 
 class RelayPocTests(unittest.TestCase):
@@ -75,6 +75,11 @@ class RelayPocTests(unittest.TestCase):
         self.assertEqual(result["status"], "separate_scope")
         self.assertEqual(result["equipment_type"], "AUXILIARY_RELAY")
         self.assertFalse(result["production_bom_modified"])
+
+    def test_exact_mlfb_matching_rejects_other_variants(self):
+        self.assertTrue(_contains_exact_mlfb("7SR5111-1AA11-1AA0", "Product 7SR5111-1AA11-1AA0"))
+        self.assertFalse(_contains_exact_mlfb("7SR5111-1AA11-1AA0", "Product 7SR5111-1AA11-2AA0"))
+        self.assertTrue(_contains_exact_mlfb("7SD8011-5EB90-1FA0+LOA", "Article 7SD8011-5EB90-1FA0+LOA"))
 
 
 if __name__ == "__main__":
