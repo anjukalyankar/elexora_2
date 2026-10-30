@@ -329,7 +329,7 @@ def verify(request: VerifyRequest):
 
 
 MLFB_PATTERN = re.compile(
-    r"\b7(?:SJ|SR|SD)\d{4,6}(?:-[A-Z0-9]{3,6}){1,4}(?:\+[A-Z0-9]{1,6})?\b",
+    r"\b(?:7(?:SJ|SR|SD)\d{4,6}(?:-[A-Z0-9]{3,6}){1,4}(?:\+[A-Z0-9]{1,6})?|CTUM\d{2})\b",
     re.IGNORECASE,
 )
 RELAY_TAG_PATTERN = re.compile(r"\bK\d{1,3}[A-Z]?\b", re.IGNORECASE)
