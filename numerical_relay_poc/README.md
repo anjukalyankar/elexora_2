@@ -5,7 +5,7 @@
 ## Approach
 
 - **7SJ66:** return `delegated`; continue using the existing, already-working selection-chart path.
-- **Other configured families (initially 7SR and 7SD):** use Serper for web discovery, label results from configured official manufacturer domains, and compare supplied MSLD fields against the available official-source search text.
+- **Other configured families (initially 7SR and 7SD):** use Serper for discovery, then fetch bounded HTML/PDF content hosted on configured official Siemens domains. Extract text and compare supplied MSLD fields against official-source snippets and parsed document text. Redirects outside Siemens domains are blocked. Per-field responses include an evidence excerpt.
 - **Conservative result:** return `insufficient_evidence` if an official result or exact MLFB evidence is missing, or any supplied field cannot be explicitly confirmed. Search snippets are not sufficient for final engineering approval.
 - **Future products:** add family prefixes, query templates, official domains, and field aliases to `relay_catalog.json`. New MLFB encoding rules can require a family-specific adapter, but ordinary query/alias changes do not require changing the verifier.
 - **No database dependency.** Only the optional `SERPER_API_KEY` environment variable is required for live searches.
@@ -50,8 +50,8 @@ Example is illustrative, not a statement that the sample MLFB is valid.
 - `delegated`: 7SJ66 should be handled by the existing parser/selection-chart flow.
 - `candidate_confirmed`: exact MLFB and all submitted fields were seen in official-source search text. This is **not** final engineering approval.
 - `insufficient_evidence`: evidence was missing or did not explicitly confirm all supplied fields.
-- `mismatch`: reserved for explicit technical contradictions when structured official evidence is added; current snippet-only POC deliberately avoids guessing mismatches.
+- `mismatch`: an explicit technical contradiction was found beside a relevant field label. Complex protection/hardware contradictions are only detected when values are explicitly stated in local field context.
 
 ## Important limitation
 
-Serper returns search results/snippets; it does not guarantee full datasheet content. This first POC is a discovery/evidence gate, not a replacement for official catalog/manual review. A production-grade verifier should fetch and parse the actual official PDF/product pages and track document revision before claiming technical compatibility.
+The POC now attempts bounded retrieval of official Siemens HTML/PDF pages linked by search results. PDF text extraction can miss scanned/image-only tables; OCR and document-revision/product-variant resolution are not implemented. Parsed official content is a review aid, not final engineering approval.
