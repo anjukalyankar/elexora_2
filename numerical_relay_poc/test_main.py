@@ -1,6 +1,6 @@
 import unittest
 
-from main import family_for, is_official, field_evidence
+from main import family_for, is_official, field_evidence, _extract_mlfb_contexts, _extract_specs
 
 
 class RelayPocTests(unittest.TestCase):
@@ -41,6 +41,20 @@ class RelayPocTests(unittest.TestCase):
     def test_list_value_is_normalized_for_field_confirmation(self):
         result = field_evidence("protection_functions", ["50", "51", "50N"], "Protection functions 50, 51, 50N", ["ANSI"])
         self.assertEqual(result["status"], "matched")
+
+    def test_extracts_relay_mlfbs_and_tags_from_msl_drawing_text(self):
+        text = "K51 NUM. PROT. RELAY 7SR5111-1AA11-1AA0 CT SEC: 1A AUX. SUPPLY: 110V DC"
+        rows = _extract_mlfb_contexts(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["mlfb"], "7SR5111-1AA11-1AA0")
+        self.assertEqual(rows[0]["tag"], "K51")
+
+    def test_extracts_explicit_msl_specs(self):
+        text = "K51 7SR5111-1AA11-1AA0 CT SEC: 1A AUX. SUPPLY: 110V DC HARDWARE: 4CT, 4VT, 9BI+8BO [50,51,50N,51N]"
+        specs = _extract_specs(text)
+        self.assertEqual(specs["ct_secondary"], "1A")
+        self.assertEqual(specs["auxiliary_supply"], "110V DC")
+        self.assertEqual(specs["protection_functions"], ["50", "51", "50N", "51N"])
 
 
 if __name__ == "__main__":
