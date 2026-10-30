@@ -81,6 +81,12 @@ class RelayPocTests(unittest.TestCase):
         self.assertFalse(_contains_exact_mlfb("7SR5111-1AA11-1AA0", "Product 7SR5111-1AA11-2AA0"))
         self.assertTrue(_contains_exact_mlfb("7SD8011-5EB90-1FA0+LOA", "Article 7SD8011-5EB90-1FA0+LOA"))
 
+    def test_same_mlfb_at_two_tags_is_not_merged(self):
+        text = "K51\\n7SR5111-1AA11-1AA0\\nK52\\n7SR5111-1AA11-1AA0"
+        rows = _extract_mlfb_contexts(text)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([row["tag"] for row in rows], ["K51", "K52"])
+
 
 if __name__ == "__main__":
     unittest.main()
