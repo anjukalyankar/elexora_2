@@ -382,18 +382,17 @@ def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
         # the MLFB in Siemens MSLD equipment schedules (MLFB ... K51 ...).
         # In equipment schedules the designation column follows "DESIG.";
         # this is the strongest signal for the first relay row.
+        # The first row's designation is printed in the DESIG. column;
+        # later rows commonly repeat the tag immediately after the MLFB.
+        after = [tag for tag in local_tags if 0 <= tag.start() - match.end() <= 180]
         desig_pos = context.upper().find("DESIG.")
-        if desig_pos >= 0:
+        if index == 0 and desig_pos >= 0:
             desig_end = start + desig_pos + len("DESIG.")
             candidates = [tag for tag in local_tags if 0 <= tag.start() - desig_end <= 180]
             if candidates:
                 tag = min(candidates, key=lambda item: item.start() - desig_end).group(0).upper()
-
-        # Some rows repeat the designation immediately after the MLFB.
-        if not tag:
-            after = [tag for tag in local_tags if 0 <= tag.start() - match.end() <= 180]
-            if after:
-                tag = min(after, key=lambda item: item.start() - match.end()).group(0).upper()
+        if not tag and after:
+            tag = min(after, key=lambda item: item.start() - match.end()).group(0).upper()
             if not tag and local_tags:
                 # Exclude tags with a V suffix (e.g. K86V, a drawing/device
                 # reference) from fallback relay-designation candidates.
