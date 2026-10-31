@@ -62,19 +62,23 @@ class RelayPocTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["tag"], "K51")
 
-    def test_extracts_multiple_relay_tags_independently(self):
+    def test_extracts_only_numerical_relay_families(self):
         text = "K51\n7SR5111-1AA11-1AA0\n\nK87L\n7SD8011-5EB90-1FA0+LOA\n\nK50G\nCTUM15"
         rows = _extract_mlfb_contexts(text)
-        self.assertEqual([row["tag"] for row in rows], ["K51", "K87L", "K50G"])
+        self.assertEqual([row["tag"] for row in rows], ["K51", "K87L"])
         self.assertEqual([row["mlfb"] for row in rows], [
-            "7SR5111-1AA11-1AA0", "7SD8011-5EB90-1FA0+LOA", "CTUM15"
+            "7SR5111-1AA11-1AA0", "7SD8011-5EB90-1FA0+LOA"
         ])
 
-    def test_ctum_is_classified_outside_numerical_verification(self):
-        result = _verify_extracted_relay({"mlfb": "CTUM15", "msld_specs": {"auxiliary_supply": "110V DC"}})
-        self.assertEqual(result["status"], "separate_scope")
-        self.assertEqual(result["equipment_type"], "AUXILIARY_RELAY")
-        self.assertFalse(result["production_bom_modified"])
+    def test_extracts_full_mlfb_when_pdf_joins_following_label(self):
+        text = "K51 NUM. PROT. RELAY 7SR5111-1AA11-1AA0TECH. DATA WITH MODBUS RS485"
+        rows = _extract_mlfb_contexts(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["mlfb"], "7SR5111-1AA11-1AA0")
+        self.assertEqual(rows[0]["tag"], "K51")
+
+    def test_ignores_auxiliary_relay_mlfb(self):
+        self.assertEqual(_extract_mlfb_contexts("K50G CTUM15"), [])
 
     def test_exact_mlfb_matching_rejects_other_variants(self):
         self.assertTrue(_contains_exact_mlfb("7SR5111-1AA11-1AA0", "Product 7SR5111-1AA11-1AA0"))
