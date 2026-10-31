@@ -28,8 +28,8 @@ Then open `http://127.0.0.1:8010/docs`.
 
 - `GET /health` — service status and whether Serper is configured.
 - `POST /search` — discovery-only search results; not a validation decision.
-- `POST /verify` — evidence-based candidate check for one numerical-relay MLFB and supplied MSLD fields; CTUM auxiliary relays return `separate_scope`.
-- `POST /verify-msld` — multipart PDF upload; extracts Siemens 7SJ/7SR/7SD numerical relay MLFBs and nearby specifications; CTUM15 is classified separately as an auxiliary relay, then verifies each relay. Upload field name: `file`.
+- `POST /verify` — evidence-based candidate check for one numerical-relay MLFB and supplied MSLD fields.
+- `POST /verify-msld` — multipart PDF upload; extracts and verifies only Siemens 7SJ/7SR/7SD numerical relays. Auxiliary relays such as CTUM15 are ignored. Upload field name: `file`.
 
 PDF upload example:
 
@@ -60,9 +60,8 @@ Example is illustrative, not a statement that the sample MLFB is valid.
 - `delegated`: 7SJ66 should be handled by the existing parser/selection-chart flow.
 - `candidate_confirmed`: exact complete MLFB and all submitted fields were seen in parsed official Siemens documents. Search snippets alone cannot produce this status. This is **not** final engineering approval.
 - `insufficient_evidence`: parsed official documents or exact complete MLFB/field evidence were missing. A similar MLFB variant does not count.
-- `separate_scope`: CTUM auxiliary relay detected; it is not sent through numerical protection relay verification.
 - `mismatch`: an explicit technical contradiction was found beside a relevant field label. Complex protection/hardware contradictions are only detected when values are explicitly stated in local field context.
 
 ## Important limitation
 
-The POC now attempts bounded retrieval of official Siemens HTML/PDF pages linked by search results. PDF text extraction can miss scanned/image-only tables; OCR and full document-revision/product-variant resolution are not implemented. Relay tags are associated from nearby PDF text lines and remain subject to review against the drawing. Parsed official content is a review aid, not final engineering approval.
+The POC now attempts bounded retrieval of official Siemens HTML/PDF pages linked by search results. PDF text extraction can miss scanned/image-only tables; OCR and full document-revision/product-variant resolution are not implemented. Relay tags are associated with each numerical MLFB using bounded character spans; verify tag association against the drawing. Parsed official content is a review aid, not final engineering approval.
