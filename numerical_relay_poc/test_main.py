@@ -77,6 +77,12 @@ class RelayPocTests(unittest.TestCase):
         self.assertEqual(rows[0]["mlfb"], "7SR5111-1AA11-1AA0")
         self.assertEqual(rows[0]["tag"], "K51")
 
+    def test_recovers_tag_when_next_item_number_is_concatenated(self):
+        text = "DESIG.K86VAJH13K5167 7SR5111-1AA11-1AA0"
+        rows = _extract_mlfb_contexts(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["tag"], "K51")
+
     def test_ignores_auxiliary_relay_mlfb(self):
         self.assertEqual(_extract_mlfb_contexts("K50G CTUM15"), [])
 
