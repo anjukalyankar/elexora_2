@@ -348,7 +348,10 @@ MLFB_PATTERN = re.compile(
 # MSLD schedules may concatenate a Kxx equipment tag with the next item number
 # (for example K5167); capture the two-digit tag prefix without swallowing 67.
 # Include letter suffixes such as K87L; K87 alone loses the relay designation.
-RELAY_TAG_PATTERN = re.compile(r"(?<![A-Z0-9])K\d{2}[A-Z]{0,2}", re.IGNORECASE)
+# Drawing text may concatenate the tag with a following item number (K5167),
+# so intentionally do not require a trailing word boundary. "V" is excluded
+# as a suffix because K86V is a device designation, not relay tag K86.
+RELAY_TAG_PATTERN = re.compile(r"(?<![A-Z0-9])K\d{2}[A-UW-Z]?", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
