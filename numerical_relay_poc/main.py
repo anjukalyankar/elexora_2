@@ -342,7 +342,7 @@ def verify(request: VerifyRequest):
 # because pypdf sometimes removes whitespace between drawing text objects.
 # The + option code used by these families is three characters.
 MLFB_PATTERN = re.compile(
-    r"(?<![A-Z0-9])7(?:SJ|SR|SD)\d{4,6}-[A-Z0-9]{5}-[A-Z0-9]{4}(?:\+[A-Z0-9]{3})?",
+    r"(?<!\d)7(?:SJ|SR|SD)\d{4,6}-[A-Z0-9]{5}-[A-Z0-9]{4}(?:\+[A-Z0-9]{3})?",
     re.IGNORECASE,
 )
 # MSLD schedules may concatenate a Kxx equipment tag with the next item number
@@ -351,7 +351,7 @@ MLFB_PATTERN = re.compile(
 # Drawing text may concatenate the tag with a following item number (K5167),
 # so intentionally do not require a trailing word boundary. "V" is excluded
 # as a suffix because K86V is a device designation, not relay tag K86.
-RELAY_TAG_PATTERN = re.compile(r"(?<![A-Z0-9])K\d{2}[A-UW-Z]?(?![A-Z])", re.IGNORECASE)
+RELAY_TAG_PATTERN = re.compile(r"K\d{2}[A-UW-Z]?(?![A-Z])", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
@@ -380,25 +380,20 @@ def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
         tag = ""
         # Strongest signal: the designation is repeated immediately after
         # the MLFB in Siemens MSLD equipment schedules (MLFB ... K51 ...).
-        after = [tag for tag in local_tags if 0 <= tag.start() - match.end() <= 180]
-        if after:
-            tag = min(after, key=lambda item: item.start() - match.end()).group(0).upper()
-        else:
-            # Next strongest: tag adjacent to the matching relay description.
-            description = (
-                "NUM. PROT. RELAY" if "NUM. PROT. RELAY" in context.upper()
-                else "NUMERICAL CABLE DIFF. RELAY" if "NUMERICAL CABLE DIFF" in context.upper()
-                else ""
-            )
-            if description:
-                desc_pos = context.upper().find(description)
-                desc_end = start + desc_pos + len(description)
-                candidates = [
-                    tag for tag in local_tags
-                    if abs(tag.start() - desc_end) <= 260
-                ]
-                if candidates:
-                    tag = min(candidates, key=lambda item: abs(item.start() - desc_end)).group(0).upper()
+        # In equipment schedules the designation column follows "DESIG.";
+        # this is the strongest signal for the first relay row.
+        desig_pos = context.upper().find("DESIG.")
+        if desig_pos >= 0:
+            desig_end = start + desig_pos + len("DESIG.")
+            candidates = [tag for tag in local_tags if 0 <= tag.start() - desig_end <= 180]
+            if candidates:
+                tag = min(candidates, key=lambda item: item.start() - desig_end).group(0).upper()
+
+        # Some rows repeat the designation immediately after the MLFB.
+        if not tag:
+            after = [tag for tag in local_tags if 0 <= tag.start() - match.end() <= 180]
+            if after:
+                tag = min(after, key=lambda item: item.start() - match.end()).group(0).upper()
             if not tag and local_tags:
                 # Exclude tags with a V suffix (e.g. K86V, a drawing/device
                 # reference) from fallback relay-designation candidates.
