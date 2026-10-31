@@ -280,11 +280,6 @@ def health():
 def verify(request: VerifyRequest):
     mlfb = request.mlfb.strip().upper()
     family = family_for(mlfb)
-    if mlfb.startswith("CTUM"):
-        return {"status": "separate_scope", "equipment_type": "AUXILIARY_RELAY",
-                "family": "AUXILIARY_RELAY", "mlfb": mlfb, "checks": [],
-                "message": "CTUM auxiliary relays are outside numerical protection relay verification.",
-                "production_bom_modified": False}
     if family == "7SJ66":
         return {"status": "delegated", "family": family, "mlfb": mlfb,
                 "message": "Use the existing 7SJ66 selection-chart extraction and validation path; this POC does not alter it.",
@@ -342,50 +337,61 @@ def verify(request: VerifyRequest):
 
 
 
+# Siemens numerical-relay MLFBs only. The suffix is allowed to touch the
+# following PDF-extracted label (e.g. "...-1AA0TECH." or "...+LOANUMERICAL"),
+# because pypdf sometimes removes whitespace between drawing text objects.
+# The + option code used by these families is three characters.
 MLFB_PATTERN = re.compile(
-    r"\b(?:7(?:SJ|SR|SD)\d{4,6}(?:-[A-Z0-9]{3,6}){1,4}(?:\+[A-Z0-9]{1,6})?|CTUM\d{2})\b",
+    r"(?<![A-Z0-9])7(?:SJ|SR|SD)\\d{4,6}(?:-[A-Z0-9]{3,6}){1,4}(?:\\+[A-Z0-9]{3})?",
     re.IGNORECASE,
 )
-RELAY_TAG_PATTERN = re.compile(r"\bK\d{1,3}[A-Z]?\b", re.IGNORECASE)
+RELAY_TAG_PATTERN = re.compile(r"(?<![A-Z0-9])K\\d{1,3}[A-Z]?(?![A-Z0-9])", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
-    """Find MLFBs and associate tags from nearby PDF-extracted drawing lines.
+    """Extract only 7SJ/7SR/7SD MLFBs and keep each relay's text in its own span.
 
-    PDF extraction can place tag, description and MLFB on separate lines.
-    Associate a tag only when the nearest tag in a small local window is
-    unambiguous; otherwise leave it blank for human review.
+    PDF text objects are often concatenated without spaces and may be emitted
+    in drawing rather than visual order. Use character positions, not line
+    numbers, so suffixes adjacent to labels are retained and nearby relay
+    specifications cannot leak across MLFB boundaries.
     """
-    lines = text.splitlines()
-    occurrences: list[dict[str, Any]] = []
-    for line_index, line in enumerate(lines):
-        for match in MLFB_PATTERN.finditer(line):
-            occurrences.append({"mlfb": match.group(0).upper(), "line": line_index, "start": match.start()})
-    found: dict[str, dict[str, str]] = {}
-    for occurrence in occurrences:
-        idx = occurrence["line"]
-        start, end = max(0, idx - 3), min(len(lines), idx + 4)
-        context = "\n".join(lines[start:end])
-        nearby: list[tuple[int, str]] = []
-        for tag_line_idx in range(start, end):
-            for tag_match in RELAY_TAG_PATTERN.finditer(lines[tag_line_idx]):
-                distance = abs(tag_line_idx - idx) * 100
-                if tag_line_idx == idx:
-                    distance += abs(tag_match.start() - occurrence["start"])
-                nearby.append((distance, tag_match.group(0).upper()))
+    matches = list(MLFB_PATTERN.finditer(text))
+    if not matches:
+        return []
+
+    tag_matches = list(RELAY_TAG_PATTERN.finditer(text))
+    rows: list[dict[str, str]] = []
+    for index, match in enumerate(matches):
+        # Split the document at the midpoint between consecutive MLFBs.
+        # This gives each relay a non-overlapping text region.
+        left = 0 if index == 0 else (matches[index - 1].end() + match.start()) // 2
+        right = len(text) if index == len(matches) - 1 else (match.end() + matches[index + 1].start()) // 2
+        # Keep the local context bounded while retaining specs printed before
+        # the MLFB in MSLD schedules.
+        start = max(left, match.start() - 1100)
+        end = min(right, match.end() + 700)
+        context = text[start:end]
+
+        nearby_tags = [
+            (abs(tag.start() - match.start()), tag.group(0).upper())
+            for tag in tag_matches
+            if start <= tag.start() < end
+        ]
         tag = ""
-        if nearby:
-            nearby.sort(key=lambda item: item[0])
-            best_distance = nearby[0][0]
-            best_tags = {value for distance, value in nearby if distance == best_distance}
-            if best_distance <= 300 and len(best_tags) == 1:
-                tag = next(iter(best_tags))
-        mlfb = occurrence["mlfb"]
-        # Preserve distinct drawing tags even when they use the same MLFB.
-        # Keep untagged repeated occurrences separate rather than merging them.
-        key = f"{normalize(mlfb)}:{tag or idx}"
-        found[key] = {"mlfb": mlfb, "tag": tag, "context": context}
-    return list(found.values())
+        if nearby_tags:
+            nearby_tags.sort(key=lambda item: item[0])
+            nearest_distance = nearby_tags[0][0]
+            nearest = {value for distance, value in nearby_tags if distance == nearest_distance}
+            if len(nearest) == 1:
+                tag = next(iter(nearest))
+
+        rows.append({
+            "mlfb": match.group(0).upper(),
+            "tag": tag,
+            "context": context,
+        })
+    return rows
 
 def _extract_specs(context: str) -> dict[str, Any]:
     """Extract only explicit MSLD values from the local relay row/context."""
@@ -416,8 +422,6 @@ def _verify_extracted_relay(item: dict[str, Any]) -> dict[str, Any]:
     mlfb = item["mlfb"]
     family = family_for(mlfb)
     specs = item["msld_specs"]
-    if mlfb.startswith("CTUM"):
-        return {"status": "separate_scope", "equipment_type": "AUXILIARY_RELAY", "family": "AUXILIARY_RELAY", "mlfb": mlfb, "checks": [], "message": "CTUM auxiliary relays are classified separately and are not sent through numerical protection relay verification.", "production_bom_modified": False}
     if family == "7SJ66":
         return {
             "status": "delegated", "family": family, "mlfb": mlfb,
@@ -469,8 +473,8 @@ async def verify_msld(file: UploadFile = File(...)):
         extracted.append({
             "tag": row["tag"] or None,
             "mlfb": row["mlfb"],
-            "family": "AUXILIARY_RELAY" if row["mlfb"].startswith("CTUM") else family_for(row["mlfb"]),
-            "equipment_type": "AUXILIARY_RELAY" if row["mlfb"].startswith("CTUM") else "NUMERICAL_PROTECTION_RELAY",
+            "family": family_for(row["mlfb"]),
+            "equipment_type": "NUMERICAL_PROTECTION_RELAY",
             "msld_specs": _extract_specs(row["context"]),
             "extraction_context": row["context"][:1200],
         })
@@ -490,8 +494,7 @@ async def verify_msld(file: UploadFile = File(...)):
         "extraction_method": "selectable PDF text via pypdf; no OCR",
         "limitations": [
             "Scanned/image-only drawings are not OCR processed.",
-            "Only Siemens 7SJ, 7SR, 7SD and CTUM15 patterns are currently detected automatically.",
-            "CTUM auxiliary relays are classified separately; auxiliary-relay product verification is not implemented.",
+            "Only Siemens 7SJ, 7SR and 7SD numerical relay patterns are detected automatically.",
             "Extracted values are limited to text near each MLFB; review the extraction_context before relying on results.",
             "7SJ66 is delegated to the existing selection-chart workflow.",
             "Candidate confirmation is not final engineering approval.",
