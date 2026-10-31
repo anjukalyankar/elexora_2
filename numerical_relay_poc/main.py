@@ -347,16 +347,16 @@ MLFB_PATTERN = re.compile(
 )
 # MSLD schedules may concatenate a Kxx equipment tag with the next item number
 # (for example K5167); capture the two-digit tag prefix without swallowing 67.
-RELAY_TAG_PATTERN = re.compile(r"(?<![A-Z0-9])K\d{2}[A-Z]?", re.IGNORECASE)
+# Include letter suffixes such as K87L; K87 alone loses the relay designation.
+RELAY_TAG_PATTERN = re.compile(r"(?<![A-Z0-9])K\d{2}[A-Z]{0,2}", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
-    """Extract only 7SJ/7SR/7SD MLFBs and keep each relay's text in its own span.
+    """Extract Siemens numerical relay rows from PDF text.
 
-    PDF text objects are often concatenated without spaces and may be emitted
-    in drawing rather than visual order. Use character positions, not line
-    numbers, so suffixes adjacent to labels are retained and nearby relay
-    specifications cannot leak across MLFB boundaries.
+    Prefer the tag printed in the same logical equipment row as the MLFB.
+    pypdf can concatenate unrelated drawing columns, so a globally-nearest
+    K-tag is unsafe (for example it can choose K86V for the K51 relay).
     """
     matches = list(MLFB_PATTERN.finditer(text))
     if not matches:
@@ -365,34 +365,46 @@ def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
     tag_matches = list(RELAY_TAG_PATTERN.finditer(text))
     rows: list[dict[str, str]] = []
     for index, match in enumerate(matches):
-        # Split the document at the midpoint between consecutive MLFBs.
-        # This gives each relay a non-overlapping text region.
-        left = 0 if index == 0 else (matches[index - 1].end() + match.start()) // 2
-        right = len(text) if index == len(matches) - 1 else (match.end() + matches[index + 1].start()) // 2
-        # Keep the local context bounded while retaining specs printed before
-        # the MLFB in MSLD schedules.
-        start = max(left, match.start() - 1100)
-        end = min(right, match.end() + 700)
+        left = 0 if index == 0 else matches[index - 1].end()
+        right = len(text) if index == len(matches) - 1 else matches[index + 1].start()
+        # Limit context to this MLFB's span and avoid borrowing a tag from the
+        # next relay row.
+        start = max(left, match.start() - 1500)
+        end = min(right, match.end() + 900)
         context = text[start:end]
 
-        nearby_tags = [
-            (abs(tag.start() - match.start()), tag.group(0).upper())
-            for tag in tag_matches
-            if start <= tag.start() < end
-        ]
+        local_tags = [tag for tag in tag_matches if start <= tag.start() < end]
         tag = ""
-        if nearby_tags:
-            nearby_tags.sort(key=lambda item: item[0])
-            nearest_distance = nearby_tags[0][0]
-            nearest = {value for distance, value in nearby_tags if distance == nearest_distance}
-            if len(nearest) == 1:
-                tag = next(iter(nearest))
+        # Strongest signal: the designation is repeated immediately after
+        # the MLFB in Siemens MSLD equipment schedules (MLFB ... K51 ...).
+        after = [tag for tag in local_tags if 0 <= tag.start() - match.end() <= 180]
+        if after:
+            tag = min(after, key=lambda item: item.start() - match.end()).group(0).upper()
+        else:
+            # Next strongest: tag adjacent to the matching relay description.
+            description = (
+                "NUM. PROT. RELAY" if "NUM. PROT. RELAY" in context.upper()
+                else "NUMERICAL CABLE DIFF. RELAY" if "NUMERICAL CABLE DIFF" in context.upper()
+                else ""
+            )
+            if description:
+                desc_pos = context.upper().find(description)
+                desc_end = start + desc_pos + len(description)
+                candidates = [
+                    tag for tag in local_tags
+                    if abs(tag.start() - desc_end) <= 260
+                ]
+                if candidates:
+                    tag = min(candidates, key=lambda item: abs(item.start() - desc_end)).group(0).upper()
+            if not tag and local_tags:
+                # Exclude tags with a V suffix (e.g. K86V, a drawing/device
+                # reference) from fallback relay-designation candidates.
+                candidates = [tag for tag in local_tags if not tag.group(0).upper().endswith("V")]
+                if candidates:
+                    nearest = min(candidates, key=lambda item: abs(item.start() - match.start()))
+                    tag = nearest.group(0).upper()
 
-        rows.append({
-            "mlfb": match.group(0).upper(),
-            "tag": tag,
-            "context": context,
-        })
+        rows.append({"mlfb": match.group(0).upper(), "tag": tag, "context": context})
     return rows
 
 def _extract_specs(context: str) -> dict[str, Any]:
