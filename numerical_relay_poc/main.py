@@ -355,48 +355,54 @@ RELAY_TAG_PATTERN = re.compile(r"K\d{2}[A-UW-Z]?(?![A-Z])", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
-    """Extract relay records using designation anchors as row boundaries.
+    """Extract relay-local text blocks from the MSLD's selectable text.
 
-    pypdf's default text order can place equipment-table columns in a different
-    order: a relay's hardware/protection block may occur before its MLFB. A
-    fixed window around each MLFB therefore leaks the next relay's values.
-    Instead, associate each MLFB with its nearby designation tag, then use
-    consecutive numerical-relay designation tags to delimit the source block.
+    pypdf may emit a relay's specification columns before its MLFB column.
+    Start a block at the nearest preceding relay designation or HARDWARE
+    heading, and stop at the next supported relay designation.
     """
     matches = list(MLFB_PATTERN.finditer(text))
     if not matches:
         return []
-
     tag_matches = list(RELAY_TAG_PATTERN.finditer(text))
-    anchors: list[tuple[int, str, re.Match[str]]] = []
-    for match in matches:
-        # The designation is normally immediately before the MLFB in the
-        # extracted schedule. Do not borrow a tag from a later equipment row.
-        candidates = [tag for tag in tag_matches
-                      if 0 <= match.start() - tag.end() <= 300]
-        if not candidates:
-            # Some PDFs repeat the designation just after the MLFB.
-            candidates = [tag for tag in tag_matches
-                          if 0 <= tag.start() - match.end() <= 180]
-        if candidates:
-            chosen = min(candidates, key=lambda item:
-                         abs(match.start() - item.end()) if item.end() <= match.start()
-                         else abs(item.start() - match.end()))
-            anchors.append((chosen.start(), chosen.group(0).upper(), match))
-        else:
-            anchors.append((match.start(), "", match))
 
-    # Only tags associated with supported numerical MLFBs form boundaries.
-    # This excludes nearby auxiliary-device tags such as K50G.
-    ordered = sorted(anchors, key=lambda item: item[0])
-    rows: list[dict[str, str]] = []
-    for index, (anchor_pos, tag, match) in enumerate(ordered):
-        left = 0 if index == 0 else anchor_pos
-        right = len(text) if index == len(ordered) - 1 else ordered[index + 1][0]
-        # Include the full designation-to-designation block. It may contain
-        # the row's fields before or after its MLFB due to PDF column order.
-        context = text[left:right]
-        rows.append({"mlfb": match.group(0).upper(), "tag": tag, "context": context})
+    records = []
+    for match in matches:
+        # A designation printed just before the MLFB is preferred. Otherwise
+        # accept the repeated designation shortly after the MLFB.
+        before = [t for t in tag_matches if 0 <= match.start() - t.end() <= 500]
+        after = [t for t in tag_matches if 0 <= t.start() - match.end() <= 220]
+        candidates = before or after
+        tag_match = min(candidates, key=lambda t: abs(match.start() - t.end())
+                        if t.end() <= match.start() else abs(t.start() - match.end())) if candidates else None
+        tag = tag_match.group(0).upper() if tag_match else ""
+        anchor = tag_match.start() if tag_match else match.start()
+        records.append({"mlfb_match": match, "tag": tag, "anchor": anchor})
+
+    records.sort(key=lambda r: r["anchor"])
+    rows = []
+    for i, record in enumerate(records):
+        match = record["mlfb_match"]
+        anchor = record["anchor"]
+        next_anchor = records[i + 1]["anchor"] if i + 1 < len(records) else len(text)
+
+        # If table-column ordering places the first relay's specification
+        # block before its MLFB/designation, use the closest preceding
+        # HARDWARE heading, bounded by the previous relay block.
+        previous_end = records[i - 1]["anchor"] if i else 0
+        hardware_heads = [m.start() for m in re.finditer(r"\\bHARDWARE\\s*:", text[:match.start()], re.I)
+                          if previous_end <= m.start() and match.start() - m.start() <= 1400]
+        if hardware_heads and (not record["tag"] or hardware_heads[-1] < anchor):
+            start = hardware_heads[-1]
+        else:
+            start = anchor
+        # For the first record, avoid including unrelated equipment schedule
+        # text before the actual relay spec heading.
+        if i == 0 and not hardware_heads and start > match.start():
+            start = match.start()
+        end = next_anchor if next_anchor > start else min(len(text), match.end() + 1200)
+        context = text[start:end]
+        rows.append({"mlfb": match.group(0).upper(), "tag": record["tag"], "context": context})
     return rows
 
 def _extract_specs(context: str) -> dict[str, Any]:
