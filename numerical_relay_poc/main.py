@@ -342,7 +342,7 @@ def verify(request: VerifyRequest):
 # because pypdf sometimes removes whitespace between drawing text objects.
 # The + option code used by these families is three characters.
 MLFB_PATTERN = re.compile(
-    r"(?<![A-Z0-9])7(?:SJ|SR|SD)\d{4,6}(?:-[A-Z0-9]{3,5}){1,4}(?:\+[A-Z0-9]{3})?",
+    r"(?<![A-Z0-9])7(?:SJ|SR|SD)\d{4,6}(?:-[A-Z0-9]{4,5}){1,3}-[A-Z0-9]{4}(?:\+[A-Z0-9]{3})?",
     re.IGNORECASE,
 )
 # MSLD schedules may concatenate a Kxx equipment tag with the next item number
