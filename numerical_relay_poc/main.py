@@ -355,52 +355,47 @@ RELAY_TAG_PATTERN = re.compile(r"K\d{2}[A-UW-Z]?(?![A-Z])", re.IGNORECASE)
 
 
 def _extract_mlfb_contexts(text: str) -> list[dict[str, str]]:
-    """Extract Siemens numerical relay rows from PDF text.
+    """Extract relay records using designation anchors as row boundaries.
 
-    Prefer the tag printed in the same logical equipment row as the MLFB.
-    pypdf can concatenate unrelated drawing columns, so a globally-nearest
-    K-tag is unsafe (for example it can choose K86V for the K51 relay).
+    pypdf's default text order can place equipment-table columns in a different
+    order: a relay's hardware/protection block may occur before its MLFB. A
+    fixed window around each MLFB therefore leaks the next relay's values.
+    Instead, associate each MLFB with its nearby designation tag, then use
+    consecutive numerical-relay designation tags to delimit the source block.
     """
     matches = list(MLFB_PATTERN.finditer(text))
     if not matches:
         return []
 
     tag_matches = list(RELAY_TAG_PATTERN.finditer(text))
+    anchors: list[tuple[int, str, re.Match[str]]] = []
+    for match in matches:
+        # The designation is normally immediately before the MLFB in the
+        # extracted schedule. Do not borrow a tag from a later equipment row.
+        candidates = [tag for tag in tag_matches
+                      if 0 <= match.start() - tag.end() <= 300]
+        if not candidates:
+            # Some PDFs repeat the designation just after the MLFB.
+            candidates = [tag for tag in tag_matches
+                          if 0 <= tag.start() - match.end() <= 180]
+        if candidates:
+            chosen = min(candidates, key=lambda item:
+                         abs(match.start() - item.end()) if item.end() <= match.start()
+                         else abs(item.start() - match.end()))
+            anchors.append((chosen.start(), chosen.group(0).upper(), match))
+        else:
+            anchors.append((match.start(), "", match))
+
+    # Only tags associated with supported numerical MLFBs form boundaries.
+    # This excludes nearby auxiliary-device tags such as K50G.
+    ordered = sorted(anchors, key=lambda item: item[0])
     rows: list[dict[str, str]] = []
-    for index, match in enumerate(matches):
-        left = 0 if index == 0 else matches[index - 1].end()
-        right = len(text) if index == len(matches) - 1 else matches[index + 1].start()
-        # Limit context to this MLFB's span and avoid borrowing a tag from the
-        # next relay row.
-        start = max(left, match.start() - 1500)
-        end = min(right, match.end() + 900)
-        context = text[start:end]
-
-        local_tags = [tag for tag in tag_matches if start <= tag.start() < end]
-        tag = ""
-        # Strongest signal: the designation is repeated immediately after
-        # the MLFB in Siemens MSLD equipment schedules (MLFB ... K51 ...).
-        # In equipment schedules the designation column follows "DESIG.";
-        # this is the strongest signal for the first relay row.
-        # The first row's designation is printed in the DESIG. column;
-        # later rows commonly repeat the tag immediately after the MLFB.
-        after = [tag for tag in local_tags if 0 <= tag.start() - match.end() <= 180]
-        desig_pos = context.upper().find("DESIG.")
-        if index == 0 and desig_pos >= 0:
-            desig_end = start + desig_pos + len("DESIG.")
-            candidates = [tag for tag in local_tags if 0 <= tag.start() - desig_end <= 180]
-            if candidates:
-                tag = min(candidates, key=lambda item: item.start() - desig_end).group(0).upper()
-        if not tag and after:
-            tag = min(after, key=lambda item: item.start() - match.end()).group(0).upper()
-            if not tag and local_tags:
-                # Exclude tags with a V suffix (e.g. K86V, a drawing/device
-                # reference) from fallback relay-designation candidates.
-                candidates = [tag for tag in local_tags if not tag.group(0).upper().endswith("V")]
-                if candidates:
-                    nearest = min(candidates, key=lambda item: abs(item.start() - match.start()))
-                    tag = nearest.group(0).upper()
-
+    for index, (anchor_pos, tag, match) in enumerate(ordered):
+        left = 0 if index == 0 else anchor_pos
+        right = len(text) if index == len(ordered) - 1 else ordered[index + 1][0]
+        # Include the full designation-to-designation block. It may contain
+        # the row's fields before or after its MLFB due to PDF column order.
+        context = text[left:right]
         rows.append({"mlfb": match.group(0).upper(), "tag": tag, "context": context})
     return rows
 
