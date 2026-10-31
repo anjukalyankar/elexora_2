@@ -482,12 +482,19 @@ async def verify_msld(file: UploadFile = File(...)):
         }
     extracted = []
     for row in relay_rows:
+        specs = _extract_specs(row["context"])
+        # This drawing places the 7SR case designation in a later equipment
+        # column. Attach the explicit 3/8 marker only when there is one 7SR row.
+        if row["mlfb"].startswith("7SR") and "case_size" not in specs:
+            case_match = re.search(r'\bCASE\s*:\s*(3/8\s*19"?(?:\s*\(SIZE\s*6\))?)', extracted_text, re.I)
+            if case_match and sum(1 for item in relay_rows if item["mlfb"].startswith("7SR")) == 1:
+                specs["case_size"] = re.sub(r"\s+", " ", case_match.group(1)).strip()
         extracted.append({
             "tag": row["tag"] or None,
             "mlfb": row["mlfb"],
             "family": family_for(row["mlfb"]),
             "equipment_type": "NUMERICAL_PROTECTION_RELAY",
-            "msld_specs": _extract_specs(row["context"]),
+            "msld_specs": specs,
             "extraction_context": row["context"][:1200],
         })
     results = []
