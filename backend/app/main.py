@@ -2648,22 +2648,39 @@ async def check_msld_customers(
     # DIS is a two-column footer table. Parse the Client/W.O. values from
     # words on the same visual row, stopping before the right-hand columns.
     dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
-    def footer_value(label_pattern, stop_pattern=None):
-        # Labels can be separate PDF words ("Client", ":-") or combined
-        # ("Client:"). Read only words to the right on the same visual row.
-        labels = [w for w in dis_words if re.match(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)]
+    def footer_value(label_pattern):
+        # Read only words to the right of the requested label on the same visual row.
+        labels = [
+            w for w in dis_words
+            if re.fullmatch(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)
+        ]
         for label_word in labels:
             row = sorted(
                 [w for w in dis_words if abs(w['y'] - label_word['y']) <= 8 and w['x'] > label_word['x']],
                 key=lambda w: w['x']
             )
-            picked=[]
+            picked = []
             for word in row:
-                token=word['text'].strip(' :.-')
+                token = word['text'].strip(' :.-')
                 if not token:
                     continue
-                # Footer columns/fields start here; never absorb their labels.
-                if re.match(r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)
+                # Stop before adjacent footer columns or the next field label.
+                if re.match(
+                    r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b',
+                    token,
+                    re.IGNORECASE
+                ):
+                    break
+                picked.append(token)
+            value = clean_value(' '.join(picked)).strip(' :-')
+            if value:
+                return value
+        return ''
+
+    dis_customer = footer_value(r'^Client$')
+    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
+    if not dis_customer:
+        dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
