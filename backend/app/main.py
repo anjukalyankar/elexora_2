@@ -376,7 +376,9 @@ def first(pattern,text,default=''):
  m=re.search(pattern,text,re.I|re.M); return m.group(1).strip() if m else default
 def norm_voltage(v):
  v=re.sub(r'\s+', '', str(v or '').strip().upper())
- v=re.sub(r'KV
+ v=re.sub(r'KV$', '', v)
+ return v
+
 def transform_word(page,word):
  pts=[fitz.Point(word[0],word[1])*page.rotation_matrix,fitz.Point(word[2],word[3])*page.rotation_matrix]
  return {'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':word[4]}
