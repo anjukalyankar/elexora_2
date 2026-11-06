@@ -5463,24 +5463,39 @@ def extract_panel_suitability(dis_text):
     return ''
 
 def extract_pt_core_lines(pt_text):
-    """Extract only each PT core's ratio, burden and accuracy class; never absorb adjacent MSLD equipment."""
+    """Extract burden/class only from explicitly numbered cores in the PT equipment row."""
     text = clean_value(pt_text)
-    # The PT core table is followed by other equipment rows in flattened PDF text.
-    # Extract bounded engineering tokens instead of consuming everything until the next CORE label.
-    core_matches = re.findall(
-        r'(?:\b(?:CORE\s*\d+\s*:\s*)?)'
-        r'((?:\d+(?:\.\d+)?\s*kV\s*/\s*(?:√|\bSQRT\b)?\s*3\s*/\s*'
-        r'\d+(?:\.\d+)?\s*/\s*(?:√|\bSQRT\b)?\s*3\s*,?\s*)?'
-        r'\d+(?:\.\d+)?\s*VA\s*,?\s*CL\.?\s*-?\s*[A-Z0-9.]+)',
-        text, re.IGNORECASE
-    )
-    result = []
-    for value in core_matches:
-        value = clean_value(value).rstrip(' ,;')
-        if value and value not in result:
-            result.append(value)
-    return result
+    if not text:
+        return []
 
+    # Do not scan the complete MSLD here: CT rows can also contain VA/class data.
+    # Each core is bounded by its own CORE n label and the next core label.
+    sections = list(re.finditer(
+        r'\\bCORE\\s*(\\d+)\\s*:\\s*(.*?)(?=\\bCORE\\s*\\d+\\s*:|$)',
+        text,
+        re.IGNORECASE
+    ))
+    extracted = {}
+    for match in sections:
+        core_number = int(match.group(1))
+        section = match.group(2)
+
+        burden = first_match(r'\\b(\\d+(?:\\.\\d+)?)\\s*VA\\b', section)
+        accuracy = re.search(
+            r'\\b(?:CL\\.?|CLASS)\\s*[-:=]?\\s*([A-Z0-9]+(?:\\.[A-Z0-9]+)?)(\\s*\\(\\s*OD\\s*\\))?',
+            section,
+            re.IGNORECASE
+        )
+        # A burden without a readable accuracy class is incomplete; never
+        # substitute a neighbouring CT burden or emit a partial "CLASS" value.
+        if not burden or not accuracy:
+            continue
+
+        class_value = accuracy.group(1).upper()
+        suffix = ' (OD)' if accuracy.group(2) else ''
+        extracted[core_number] = f'{burden}VA, CL-{class_value}{suffix}'
+
+    return [extracted[number] for number in sorted(extracted)]
 
 
 def extract_pt_fuse_rating(msld_text, dis_text):
@@ -5525,7 +5540,7 @@ def pt_spec(pt_text, msld_text, dis_text):
     if not transformer_type:
         transformer_type = 'POTENTIAL TRANSFORMERS IN CAST RESIN EPOXY CASE (DRAWOUT TYPE)'
     transformer_type = clean_value(transformer_type).upper()
-    cores = extract_pt_core_lines(pt_text) or extract_pt_core_lines(msld_text)
+    cores = extract_pt_core_lines(pt_text)
     core_count = len(cores) or 3
     core_word = {1: 'SINGLE', 2: 'TWO', 3: 'THREE'}.get(core_count, str(core_count))
     frequency = extract_frequency(dis_text)
