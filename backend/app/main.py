@@ -2663,7 +2663,18 @@ async def check_msld_customers(
                 if not token:
                     continue
                 # Footer columns/fields start here; never absorb their labels.
-                if re.match(r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)
+                if re.match(r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b', token, re.IGNORECASE):
+                    break
+                picked.append(token)
+            value = clean_value(' '.join(picked)).strip(' :-')
+            if value:
+                return value
+        return ''
+
+    dis_customer = footer_value(r'^Client$')
+    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
+    if not dis_customer:
+        dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
