@@ -2666,7 +2666,7 @@ async def check_msld_customers(
                     continue
                 # Stop before adjacent footer columns or the next field label.
                 if re.match(
-                    r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b',
+                    r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)\b',
                     token,
                     re.IGNORECASE
                 ):
@@ -2678,7 +2678,7 @@ async def check_msld_customers(
         return ''
 
     dis_customer = footer_value(r'^Client$')
-    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
+    dis_wo = footer_value(r'^(?:W\.?O\.?|Work\s*Order)$')
     if not dis_customer:
         dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
