@@ -1043,25 +1043,38 @@ async def check_msld_customers(
     # DIS is a two-column footer table. Parse the Client/W.O. values from
     # words on the same visual row, stopping before the right-hand columns.
     dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
-    def footer_value(label_pattern, stop_pattern=None, max_x=None):
-        labels = [w for w in dis_words if re.fullmatch(label_pattern, w['text'], re.IGNORECASE)]
+    def footer_value(label_pattern):
+        # Read only words to the right of the requested label on the same visual row.
+        labels = [
+            w for w in dis_words
+            if re.fullmatch(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)
+        ]
         for label_word in labels:
-            row = sorted([w for w in dis_words if abs(w['y'] - label_word['y']) <= 4 and w['x'] > label_word['x']], key=lambda w:w['x'])
-            picked=[]
+            row = sorted(
+                [w for w in dis_words if abs(w['y'] - label_word['y']) <= 8 and w['x'] > label_word['x']],
+                key=lambda w: w['x']
+            )
+            picked = []
             for word in row:
-                if max_x is not None and word['x'] >= max_x: break
-                if stop_pattern and re.search(stop_pattern, word['text'], re.IGNORECASE): break
-                if re.fullmatch(r'[:\-]+', word['text']): continue
-                picked.append(word['text'])
-            value=clean_value(' '.join(picked)).strip(' :-')
-            if value: return value
+                token = word['text'].strip(' :.-')
+                if not token:
+                    continue
+                if re.match(
+                    r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b',
+                    token,
+                    re.IGNORECASE
+                ):
+                    break
+                picked.append(token)
+            value = clean_value(' '.join(picked)).strip(' :-')
+            if value:
+                return value
         return ''
-    sales_words = [w for w in dis_words if re.search(r'Sales', w['text'], re.IGNORECASE)]
-    sales_x = min((w['x'] for w in sales_words), default=None)
-    dis_customer = footer_value(r'Client', max_x=sales_x)
+
+    dis_customer = footer_value(r'^Client$')
+    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
     if not dis_customer:
-        dis_customer = footer_value(r'Customer')
-    dis_wo = footer_value(r'W\.?O\.?', stop_pattern=r'Item|Qty')
+        dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
@@ -2648,22 +2661,38 @@ async def check_msld_customers(
     # DIS is a two-column footer table. Parse the Client/W.O. values from
     # words on the same visual row, stopping before the right-hand columns.
     dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
-    def footer_value(label_pattern, stop_pattern=None):
-        # Labels can be separate PDF words ("Client", ":-") or combined
-        # ("Client:"). Read only words to the right on the same visual row.
-        labels = [w for w in dis_words if re.match(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)]
+    def footer_value(label_pattern):
+        # Read only words to the right of the requested label on the same visual row.
+        labels = [
+            w for w in dis_words
+            if re.fullmatch(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)
+        ]
         for label_word in labels:
             row = sorted(
                 [w for w in dis_words if abs(w['y'] - label_word['y']) <= 8 and w['x'] > label_word['x']],
                 key=lambda w: w['x']
             )
-            picked=[]
+            picked = []
             for word in row:
-                token=word['text'].strip(' :.-')
+                token = word['text'].strip(' :.-')
                 if not token:
                     continue
-                # Footer columns/fields start here; never absorb their labels.
-                if re.match(r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)
+                if re.match(
+                    r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b',
+                    token,
+                    re.IGNORECASE
+                ):
+                    break
+                picked.append(token)
+            value = clean_value(' '.join(picked)).strip(' :-')
+            if value:
+                return value
+        return ''
+
+    dis_customer = footer_value(r'^Client$')
+    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
+    if not dis_customer:
+        dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
@@ -3148,64 +3177,6 @@ def export_pdf(payload):
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
     return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
-, token, re.IGNORECASE):
-                    break
-                if stop_pattern and re.search(stop_pattern, token, re.IGNORECASE):
-                    break
-                picked.append(token)
-            value=clean_value(' '.join(picked)).strip(' :-')
-            if value: return value
-        return ''
-    dis_customer = footer_value(r'Client')
-    if not dis_customer:
-        dis_customer = footer_value(r'Customer')
-    dis_wo = footer_value(r'W\.?O\.?', stop_pattern=r'Item|Qty')
-    if not dis_wo:
-        dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
-    dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
-    def distinct(values):
-        return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
-    customers = distinct([x['customer'] for x in results])
-    work_orders = distinct([x['work_order'] for x in results])
-    voltages = distinct([x['voltage'] for x in results])
-    mismatches = []
-    if len({x.casefold() for x in customers}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different customer names.')
-    if len({x.casefold() for x in work_orders}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different work order numbers.')
-    if len({x.casefold() for x in voltages}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different voltage values.')
-    entered = {'customer': clean_value(client), 'work_order': clean_value(wo), 'voltage': clean_value(voltage)}
-    for label, values, dis_value, entered_value in [
-        ('Customer name', customers, dis_customer, entered['customer']),
-        ('Work order number', work_orders, dis_wo, entered['work_order']),
-        ('Voltage', voltages, dis_voltage, entered['voltage'])
-    ]:
-        all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
-        if label == 'Voltage':
-            all_values = distinct([norm_voltage(value) or value for value in all_values])
-        if len({x.casefold() for x in all_values}) > 1:
-            mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
-
-    # Do not silently proceed when a PDF header field could not be extracted.
-    # The existing verification modal displays these messages and lets the user
-    # review the extracted values before choosing whether to continue.
-    for item in results:
-        if not item['work_order']:
-            mismatches.append(f"Work order number could not be read from MSLD: {item['filename']}.")
-        if not item['voltage']:
-            mismatches.append(f"Voltage could not be read from MSLD: {item['filename']}.")
-    if not dis_wo:
-        mismatches.append(f"Work order number could not be read from DIS: {dis_name}.")
-    if not dis_voltage:
-        mismatches.append(f"Voltage could not be read from DIS: {dis_name}.")
-    return {
-        'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
-        'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
-        'mismatches': list(dict.fromkeys(mismatches)),
-        'dis': {'filename': dis_name, 'customer': dis_customer, 'work_order': dis_wo, 'voltage': clean_value(dis_voltage)}
-    }
-
 @app.post('/api/bom/preview-multiple')
 async def preview_multiple(
     client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
@@ -4310,22 +4281,38 @@ async def check_msld_customers(
     # DIS is a two-column footer table. Parse the Client/W.O. values from
     # words on the same visual row, stopping before the right-hand columns.
     dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
-    def footer_value(label_pattern, stop_pattern=None):
-        # Labels can be separate PDF words ("Client", ":-") or combined
-        # ("Client:"). Read only words to the right on the same visual row.
-        labels = [w for w in dis_words if re.match(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)]
+    def footer_value(label_pattern):
+        # Read only words to the right of the requested label on the same visual row.
+        labels = [
+            w for w in dis_words
+            if re.fullmatch(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)
+        ]
         for label_word in labels:
             row = sorted(
                 [w for w in dis_words if abs(w['y'] - label_word['y']) <= 8 and w['x'] > label_word['x']],
                 key=lambda w: w['x']
             )
-            picked=[]
+            picked = []
             for word in row:
-                token=word['text'].strip(' :.-')
+                token = word['text'].strip(' :.-')
                 if not token:
                     continue
-                # Footer columns/fields start here; never absorb their labels.
-                if re.match(r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)
+                if re.match(
+                    r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b',
+                    token,
+                    re.IGNORECASE
+                ):
+                    break
+                picked.append(token)
+            value = clean_value(' '.join(picked)).strip(' :-')
+            if value:
+                return value
+        return ''
+
+    dis_customer = footer_value(r'^Client$')
+    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
+    if not dis_customer:
+        dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
@@ -4810,64 +4797,6 @@ def export_pdf(payload):
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
     return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
-, token, re.IGNORECASE):
-                    break
-                if stop_pattern and re.search(stop_pattern, token, re.IGNORECASE):
-                    break
-                picked.append(token)
-            value=clean_value(' '.join(picked)).strip(' :-')
-            if value: return value
-        return ''
-    dis_customer = footer_value(r'Client')
-    if not dis_customer:
-        dis_customer = footer_value(r'Customer')
-    dis_wo = footer_value(r'W\.?O\.?', stop_pattern=r'Item|Qty')
-    if not dis_wo:
-        dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
-    dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
-    def distinct(values):
-        return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
-    customers = distinct([x['customer'] for x in results])
-    work_orders = distinct([x['work_order'] for x in results])
-    voltages = distinct([x['voltage'] for x in results])
-    mismatches = []
-    if len({x.casefold() for x in customers}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different customer names.')
-    if len({x.casefold() for x in work_orders}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different work order numbers.')
-    if len({x.casefold() for x in voltages}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different voltage values.')
-    entered = {'customer': clean_value(client), 'work_order': clean_value(wo), 'voltage': clean_value(voltage)}
-    for label, values, dis_value, entered_value in [
-        ('Customer name', customers, dis_customer, entered['customer']),
-        ('Work order number', work_orders, dis_wo, entered['work_order']),
-        ('Voltage', voltages, dis_voltage, entered['voltage'])
-    ]:
-        all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
-        if label == 'Voltage':
-            all_values = distinct([norm_voltage(value) or value for value in all_values])
-        if len({x.casefold() for x in all_values}) > 1:
-            mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
-
-    # Do not silently proceed when a PDF header field could not be extracted.
-    # The existing verification modal displays these messages and lets the user
-    # review the extracted values before choosing whether to continue.
-    for item in results:
-        if not item['work_order']:
-            mismatches.append(f"Work order number could not be read from MSLD: {item['filename']}.")
-        if not item['voltage']:
-            mismatches.append(f"Voltage could not be read from MSLD: {item['filename']}.")
-    if not dis_wo:
-        mismatches.append(f"Work order number could not be read from DIS: {dis_name}.")
-    if not dis_voltage:
-        mismatches.append(f"Voltage could not be read from DIS: {dis_name}.")
-    return {
-        'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
-        'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
-        'mismatches': list(dict.fromkeys(mismatches)),
-        'dis': {'filename': dis_name, 'customer': dis_customer, 'work_order': dis_wo, 'voltage': clean_value(dis_voltage)}
-    }
-
 @app.post('/api/bom/preview-multiple')
 async def preview_multiple(
     client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
@@ -5970,22 +5899,38 @@ async def check_msld_customers(
     # DIS is a two-column footer table. Parse the Client/W.O. values from
     # words on the same visual row, stopping before the right-hand columns.
     dis_words = page_words(pdf_pages(dis_bytes, dis_name)[0]) if pdf_pages(dis_bytes, dis_name) else []
-    def footer_value(label_pattern, stop_pattern=None):
-        # Labels can be separate PDF words ("Client", ":-") or combined
-        # ("Client:"). Read only words to the right on the same visual row.
-        labels = [w for w in dis_words if re.match(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)]
+    def footer_value(label_pattern):
+        # Read only words to the right of the requested label on the same visual row.
+        labels = [
+            w for w in dis_words
+            if re.fullmatch(label_pattern, w['text'].strip(' :.-'), re.IGNORECASE)
+        ]
         for label_word in labels:
             row = sorted(
                 [w for w in dis_words if abs(w['y'] - label_word['y']) <= 8 and w['x'] > label_word['x']],
                 key=lambda w: w['x']
             )
-            picked=[]
+            picked = []
             for word in row:
-                token=word['text'].strip(' :.-')
+                token = word['text'].strip(' :.-')
                 if not token:
                     continue
-                # Footer columns/fields start here; never absorb their labels.
-                if re.match(r'^(?:Sales|Project|W\.?O\.?|Item|Qty|Description|Sh\.?|Work|Details|Drg\.?|Date|Prep|Ckd|Client)
+                if re.match(
+                    r'^(?:Sales|Project|W\\.?O\\.?|Item|Qty|Description|Sh\\.?|Work|Details|Drg\\.?|Date|Prep|Ckd|Client)\\b',
+                    token,
+                    re.IGNORECASE
+                ):
+                    break
+                picked.append(token)
+            value = clean_value(' '.join(picked)).strip(' :-')
+            if value:
+                return value
+        return ''
+
+    dis_customer = footer_value(r'^Client$')
+    dis_wo = footer_value(r'^(?:W\\.?O\\.?|Work\\s*Order)$')
+    if not dis_customer:
+        dis_customer = clean_value(dis_header.get('client', '')).strip(' :-')
     if not dis_wo:
         dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
     dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
@@ -6470,64 +6415,6 @@ def export_pdf(payload):
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
     return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
-, token, re.IGNORECASE):
-                    break
-                if stop_pattern and re.search(stop_pattern, token, re.IGNORECASE):
-                    break
-                picked.append(token)
-            value=clean_value(' '.join(picked)).strip(' :-')
-            if value: return value
-        return ''
-    dis_customer = footer_value(r'Client')
-    if not dis_customer:
-        dis_customer = footer_value(r'Customer')
-    dis_wo = footer_value(r'W\.?O\.?', stop_pattern=r'Item|Qty')
-    if not dis_wo:
-        dis_wo = clean_value(dis_header.get('wo', '')).strip(' :-')
-    dis_voltage = first(r'\b(6\.6|11|33)\s*k?V\b', dis_text)
-    def distinct(values):
-        return list(dict.fromkeys(re.sub(r'\s+', ' ', str(v)).strip() for v in values if str(v or '').strip()))
-    customers = distinct([x['customer'] for x in results])
-    work_orders = distinct([x['work_order'] for x in results])
-    voltages = distinct([x['voltage'] for x in results])
-    mismatches = []
-    if len({x.casefold() for x in customers}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different customer names.')
-    if len({x.casefold() for x in work_orders}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different work order numbers.')
-    if len({x.casefold() for x in voltages}) > 1:
-        mismatches.append('The uploaded MSLD PDFs contain different voltage values.')
-    entered = {'customer': clean_value(client), 'work_order': clean_value(wo), 'voltage': clean_value(voltage)}
-    for label, values, dis_value, entered_value in [
-        ('Customer name', customers, dis_customer, entered['customer']),
-        ('Work order number', work_orders, dis_wo, entered['work_order']),
-        ('Voltage', voltages, dis_voltage, entered['voltage'])
-    ]:
-        all_values = distinct(values + ([dis_value] if dis_value else []) + ([entered_value] if entered_value else []))
-        if label == 'Voltage':
-            all_values = distinct([norm_voltage(value) or value for value in all_values])
-        if len({x.casefold() for x in all_values}) > 1:
-            mismatches.append(f'{label} differs between entered details, MSLD and/or DIS.')
-
-    # Do not silently proceed when a PDF header field could not be extracted.
-    # The existing verification modal displays these messages and lets the user
-    # review the extracted values before choosing whether to continue.
-    for item in results:
-        if not item['work_order']:
-            mismatches.append(f"Work order number could not be read from MSLD: {item['filename']}.")
-        if not item['voltage']:
-            mismatches.append(f"Voltage could not be read from MSLD: {item['filename']}.")
-    if not dis_wo:
-        mismatches.append(f"Work order number could not be read from DIS: {dis_name}.")
-    if not dis_voltage:
-        mismatches.append(f"Voltage could not be read from DIS: {dis_name}.")
-    return {
-        'mslds': results, 'customers': customers, 'different_customers': len({x.casefold() for x in customers}) > 1,
-        'unknown_customer_files': [x['filename'] for x in results if not x['customer']],
-        'mismatches': list(dict.fromkeys(mismatches)),
-        'dis': {'filename': dis_name, 'customer': dis_customer, 'work_order': dis_wo, 'voltage': clean_value(dis_voltage)}
-    }
-
 @app.post('/api/bom/preview-multiple')
 async def preview_multiple(
     client: str = Form(''), sales_ref: str = Form(''), drawing: str = Form(''),
