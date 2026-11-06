@@ -1984,8 +1984,6 @@ def export_pdf(payload):
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
     return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
-, '', v)
- return v if v in {'6.6','11','33'} else ''
 def transform_word(page,word):
  pts=[fitz.Point(word[0],word[1])*page.rotation_matrix,fitz.Point(word[2],word[3])*page.rotation_matrix]
  return {'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':word[4]}
@@ -3646,8 +3644,6 @@ def export_pdf(payload):
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
     return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
-, '', v)
- return v
 
 #
 def transform_word(page,word):
@@ -5310,8 +5306,6 @@ def export_pdf(payload):
 async def export_pdf_endpoint(payload:dict, user:str=Depends(current_user)):
     out=export_pdf(payload)
     return StreamingResponse(out,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename=BOM_{re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("header", {}).get("wo", "WO"))).strip("_")}.pdf'})
-, '', v)
- return v if v in {'6.6','11','33'} else ''
 def transform_word(page,word):
  pts=[fitz.Point(word[0],word[1])*page.rotation_matrix,fitz.Point(word[2],word[3])*page.rotation_matrix]
  return {'x':(pts[0].x+pts[1].x)/2,'y':(pts[0].y+pts[1].y)/2,'text':word[4]}
