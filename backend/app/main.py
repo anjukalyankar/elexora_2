@@ -2042,6 +2042,8 @@ def designation_qty(des):
  return total or None
 def master_match(description,details,designation):
  s=(description+' '+details).upper()
+ des=re.sub(r'\s+','',str(designation or '')).upper()
+ if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
@@ -2424,6 +2426,16 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     # Keep source text only when the MSLD actually identifies a relay.
     spec = source_relay_text
     spec_lines = [spec] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='E2_LED':
+   spec_lines=[
+    'LED',
+    'PHILIPS/REPUTED MAKE LED 5W- TUBE FIXTURE',
+    'SUITABLE FOR 240V AC, 50Hz AC SUPPLY',
+    'SUITABLE FOR SURFACE MOUNTING'
+   ]
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
@@ -3662,6 +3674,8 @@ def designation_qty(des):
  return total or None
 def master_match(description,details,designation):
  s=(description+' '+details).upper()
+ des=re.sub(r'\s+','',str(designation or '')).upper()
+ if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
@@ -4044,6 +4058,16 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     # Keep source text only when the MSLD actually identifies a relay.
     spec = source_relay_text
     spec_lines = [spec] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='E2_LED':
+   spec_lines=[
+    'LED',
+    'PHILIPS/REPUTED MAKE LED 5W- TUBE FIXTURE',
+    'SUITABLE FOR 240V AC, 50Hz AC SUPPLY',
+    'SUITABLE FOR SURFACE MOUNTING'
+   ]
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
@@ -5280,6 +5304,8 @@ def designation_qty(des):
  return total or None
 def master_match(description,details,designation):
  s=(description+' '+details).upper()
+ des=re.sub(r'\s+','',str(designation or '')).upper()
+ if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
@@ -5704,6 +5730,16 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     # Keep source text only when the MSLD actually identifies a relay.
     spec = source_relay_text
     spec_lines = [spec] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='E2_LED':
+   spec_lines=[
+    'LED',
+    'PHILIPS/REPUTED MAKE LED 5W- TUBE FIXTURE',
+    'SUITABLE FOR 240V AC, 50Hz AC SUPPLY',
+    'SUITABLE FOR SURFACE MOUNTING'
+   ]
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='LED':
