@@ -5307,6 +5307,7 @@ def master_match(description,details,designation):
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
+ if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
@@ -5704,6 +5705,50 @@ def tnc_switch_validation(record):
     return {'errors': errors, 'is_valid': not errors}
 
 
+def load_rotary_switch_master():
+    """Load the supplied Switron S13 4-pole lockable rotary-switch master."""
+    import csv
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+    if not os.path.exists(path):
+        return None
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh):
+            if (row.get('CATEGORY') or '').strip().upper() == 'ROTARY SWITCH' and (row.get('MODEL') or '').strip().upper() == 'SPC 25P 449 B/L':
+                return {str(k).lower(): (v or '').strip() for k, v in row.items()}
+    return None
+
+
+def rotary_switch_validation(record, master_item=None):
+    """Compare S13 pole count and lockability with the available Switron master."""
+    source = clean_value(' '.join([
+        str(record.get('designation') or ''),
+        str(record.get('description') or ''),
+        str(record.get('details') or '')
+    ])).upper()
+    errors = []
+    pole_match = re.search(r'\b(3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(3|4)\s*POLES?\b', source)
+    source_poles = next((g for g in pole_match.groups() if g), None) if pole_match else None
+    master_text = (master_item or {}).get('discription', '').upper()
+    master_pole_match = re.search(r'\b(3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(3|4)\s*POLES?\b', master_text)
+    master_poles = next((g for g in master_pole_match.groups() if g), None) if master_pole_match else None
+    source_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', source))
+    source_lockable = bool(re.search(r'\bLOCKABLE\b', source)) and not source_non_lockable
+    master_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', master_text))
+    master_lockable = bool(re.search(r'\bLOCKABLE\b', master_text)) and not master_non_lockable
+    if not source_poles:
+        errors.append('Number of poles not specified in MSLD; expected 3P or 4P.')
+    elif master_poles and source_poles != master_poles:
+        errors.append('Pole count mismatch: MSLD specifies ' + source_poles + 'P; available master model SPC 25P 449 B/L is ' + master_poles + 'P.')
+    if source_lockable == source_non_lockable:
+        errors.append('Lockability not specified in MSLD; expected LOCKABLE or NON-LOCKABLE.')
+    elif source_lockable != master_lockable or source_non_lockable != master_non_lockable:
+        expected = 'NON-LOCKABLE' if master_non_lockable else 'LOCKABLE'
+        actual = 'NON-LOCKABLE' if source_non_lockable else 'LOCKABLE'
+        errors.append('Lockability mismatch: MSLD specifies ' + actual + '; available master model SPC 25P 449 B/L is ' + expected + '.')
+    return {'errors': errors, 'is_valid': not errors, 'source_poles': source_poles, 'master_poles': master_poles}
+
+
+
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
@@ -5734,6 +5779,18 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    if tnc_item:
     tnc_description = tnc_item.get('discription', '')
     spec_lines = [part.strip() for part in tnc_description.split(',') if part.strip()]
+    spec = '\n'.join(spec_lines)
+   else:
+    spec = r['description']+((' | '+r['details']) if r['details'] else '')
+    spec_lines = [clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='ROTARY_SWITCH':
+   rotary_item = load_rotary_switch_master()
+   rotary_validation = rotary_switch_validation(r, rotary_item)
+   if rotary_item and rotary_validation['is_valid']:
+    rotary_description = rotary_item.get('discription', '')
+    spec_lines = [part.strip() for part in re.split(r',|\n', rotary_description) if part.strip()]
     spec = '\n'.join(spec_lines)
    else:
     spec = r['description']+((' | '+r['details']) if r['details'] else '')
@@ -5854,6 +5911,11 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
    validation = tnc_switch_validation(record)
    label = 'Switron TNC switch ' + str(record.get('designation') or 'S14')
    warnings.extend([label + ': ' + message for message in validation['errors']])
+ for record in records:
+  if record.get('master_code') == 'ROTARY_SWITCH':
+   validation = rotary_switch_validation(record, load_rotary_switch_master())
+   label = 'Switron rotary switch ' + str(record.get('designation') or 'S13')
+   warnings.extend([label + ': ' + message for message in validation['errors']])
  warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
   validation=row.get('relay_validation')
@@ -5896,6 +5958,11 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             if record.get('master_code') == 'TNC_SWITCH':
                 validation = tnc_switch_validation(record)
                 label = msld_name + ': Switron TNC switch ' + str(record.get('designation') or 'S14')
+                warnings.extend([label + ': ' + message for message in validation['errors']])
+        for record in records:
+            if record.get('master_code') == 'ROTARY_SWITCH':
+                validation = rotary_switch_validation(record, load_rotary_switch_master())
+                label = msld_name + ': Switron rotary switch ' + str(record.get('designation') or 'S13')
                 warnings.extend([label + ': ' + message for message in validation['errors']])
         warnings.extend(e2_led_wattage_warning(records, msld_name))
         if not feeder_info:
