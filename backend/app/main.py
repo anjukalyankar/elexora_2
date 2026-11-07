@@ -5850,10 +5850,10 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  elif dis_text.strip():warnings.append('DIS supplied: used as the fixed specification source; MSLD remains the primary project-data source.')
  rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text)
  for record in records:
-   if record.get('master_code') == 'TNC_SWITCH':
-    validation = tnc_switch_validation(record)
-    label = 'Switron TNC switch ' + str(record.get('designation') or 'S14')
-    warnings.extend([label + ': ' + message for message in validation['errors']])
+  if record.get('master_code') == 'TNC_SWITCH':
+   validation = tnc_switch_validation(record)
+   label = 'Switron TNC switch ' + str(record.get('designation') or 'S14')
+   warnings.extend([label + ': ' + message for message in validation['errors']])
  warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
   validation=row.get('relay_validation')
