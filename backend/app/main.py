@@ -5307,14 +5307,14 @@ def master_match(description,details,designation):
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
- if 'LED LAMP' in s or re.search(r'\bLED\\b',s):return 'LED'
+ if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
- if re.search(r'\b7SJ66\\d{2}\\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
+ if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
- if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\\b',s) or '5SL4206-7RC' in s:return 'MCB'
+ if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
 def extract_fixed_table(data,filename):
@@ -5689,14 +5689,14 @@ def tnc_switch_validation(record):
         str(record.get('details') or '')
     ])).upper()
     errors = []
-    close_match = re.search(r'\b4\\s*NO\\s*(?:IN|AT|FOR)?\\s*CLOSE\\b|\\bCLOSE\\s*[:=-]?\\s*4\\s*NO\\b', source)
-    trip_match = re.search(r'\b4\\s*NO\\s*(?:IN|AT|FOR)?\\s*TRIP\\b|\\bTRIP\\s*[:=-]?\\s*4\\s*NO\\b', source)
+    close_match = re.search(r'\b4\s*NO\s*(?:IN|AT|FOR)?\s*CLOSE\b|\bCLOSE\s*[:=-]?\s*4\s*NO\b', source)
+    trip_match = re.search(r'\b4\s*NO\s*(?:IN|AT|FOR)?\s*TRIP\b|\bTRIP\s*[:=-]?\s*4\s*NO\b', source)
     if not close_match:
         errors.append('Contact disposition mismatch: expected 4 NO in CLOSE.')
     if not trip_match:
         errors.append('Contact disposition mismatch: expected 4 NO in TRIP.')
-    non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\\b', source))
-    lockable = bool(re.search(r'\bLOCKABLE\\b', source)) and not non_lockable
+    non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', source))
+    lockable = bool(re.search(r'\bLOCKABLE\b', source)) and not non_lockable
     if lockable:
         errors.append('Locking type mismatch: master model SBC 25P 484R is NON-LOCKABLE.')
     elif not non_lockable:
