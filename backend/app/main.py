@@ -5778,11 +5778,30 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
      rows.append({'sr':len(rows)+1,'specification':'\n'.join(addon_lines),'specification_lines':addon_lines,'editable_fields':[],'editable_indices':[],'designation':str(r.get('designation',''))+'A','feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':mcb_qty*feeder_qty_num,'eqpt_qty':mcb_qty,'mpd':'','amd':'','master_code':'MCB ADD-ON'})
  return rows,feeder_name,feeder_qty
 
+def e2_led_wattage_warning(records, source_name=''):
+    messages = []
+    for record in records:
+        if record.get('master_code') != 'E2_LED':
+            continue
+        source_text = ' '.join([
+            str(record.get('designation') or ''),
+            str(record.get('description') or ''),
+            str(record.get('details') or '')
+        ])
+        match = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*W(?:ATT(?:S)?)?\b', source_text, re.IGNORECASE)
+        if match and float(match.group(1)) != 5:
+            label = str(record.get('designation') or 'E2 LED')
+            prefix = (str(source_name) + ': ') if source_name else ''
+            messages.append(prefix + label + ': Please recheck the LED lamp wattage. MSLD shows ' + match.group(1) + 'W; required wattage is 5W.')
+    return messages
+
+
 def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,drawing,esd,wo,prep,voltage):
  msld_text=pdf_text(msld_bytes,msld_name); dis_text=pdf_text(dis_bytes,dis_name); same=bool(msld_text.strip()) and re.sub(r'\s+','',msld_text)==re.sub(r'\s+','',dis_text); feeder_info,records,warnings=extract_fixed_table(msld_bytes,msld_name)
  if same:warnings.append('The same PDF was supplied in both MSLD and DIS slots. It was processed once; DIS was used as the validation copy.')
  elif dis_text.strip():warnings.append('DIS supplied: used as the fixed specification source; MSLD remains the primary project-data source.')
  rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text)
+ warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
   validation=row.get('relay_validation')
   if validation:
@@ -5820,6 +5839,7 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             source = msld_text + "\n" + dis_text
             qty_text = first(r'\bQty\.\s*:\s*(\d+x?)\b', source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b', source) or first_ph.get('qty', '')
         feeder_info, records, file_warnings = extract_fixed_table(msld_bytes, msld_name)
+        warnings.extend(e2_led_wattage_warning(records, msld_name))
         if not feeder_info:
             warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
             feeder_info = [{'name': os.path.splitext(os.path.basename(msld_name))[0], 'designation': os.path.splitext(os.path.basename(msld_name))[0], 'quantity': '1'}]
