@@ -5306,6 +5306,7 @@ def master_match(description,details,designation):
  s=(description+' '+details).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
+ if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
@@ -5667,6 +5668,42 @@ def ct_spec(ct_text, dis_text):
     return lines
 
 
+def load_tnc_switch_master():
+    """Read the Switron TNC switch reference from the existing master CSV."""
+    import csv
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+    if not os.path.exists(path):
+        return None
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh):
+            if (row.get('CATEGORY') or '').strip().upper() == 'TNC SWITCH' and (row.get('MODEL') or '').strip().upper() == 'SBC 25P 484R':
+                return {str(k).lower(): (v or '').strip() for k, v in row.items()}
+    return None
+
+
+def tnc_switch_validation(record):
+    """Validate S14 contact disposition and lockability against the non-lockable Switron master."""
+    source = clean_value(' '.join([
+        str(record.get('designation') or ''),
+        str(record.get('description') or ''),
+        str(record.get('details') or '')
+    ])).upper()
+    errors = []
+    close_match = re.search(r'\b4\s*NO\s*(?:IN|AT|FOR)?\s*CLOSE\b|\bCLOSE\s*[:=-]?\s*4\s*NO\b', source)
+    trip_match = re.search(r'\b4\s*NO\s*(?:IN|AT|FOR)?\s*TRIP\b|\bTRIP\s*[:=-]?\s*4\s*NO\b', source)
+    if not close_match:
+        errors.append('Contact disposition mismatch: expected 4 NO in CLOSE.')
+    if not trip_match:
+        errors.append('Contact disposition mismatch: expected 4 NO in TRIP.')
+    non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', source))
+    lockable = bool(re.search(r'\bLOCKABLE\b', source)) and not non_lockable
+    if lockable:
+        errors.append('Locking type mismatch: master model SBC 25P 484R is NON-LOCKABLE.')
+    elif not non_lockable:
+        errors.append('Locking type not specified: master model SBC 25P 484R is NON-LOCKABLE; confirm before issuing the BOM.')
+    return {'errors': errors, 'is_valid': not errors}
+
+
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
@@ -5692,6 +5729,17 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:- B']
    editable_indices=[12]
+  elif r['master_code']=='TNC_SWITCH':
+   tnc_item = load_tnc_switch_master()
+   if tnc_item:
+    tnc_description = tnc_item.get('discription', '')
+    spec_lines = [part.strip() for part in tnc_description.split(',') if part.strip()]
+    spec = '\n'.join(spec_lines)
+   else:
+    spec = r['description']+((' | '+r['details']) if r['details'] else '')
+    spec_lines = [clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='MCB':
    mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
    if mcb_item:
@@ -5801,6 +5849,11 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  if same:warnings.append('The same PDF was supplied in both MSLD and DIS slots. It was processed once; DIS was used as the validation copy.')
  elif dis_text.strip():warnings.append('DIS supplied: used as the fixed specification source; MSLD remains the primary project-data source.')
  rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text)
+ for record in records:
+  if record.get('master_code') == 'TNC_SWITCH':
+   validation = tnc_switch_validation(record)
+   label = 'Switron TNC switch ' + str(record.get('designation') or 'S14')
+   warnings.extend([label + ': ' + message for message in validation['errors']])
  warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
   validation=row.get('relay_validation')
@@ -5839,6 +5892,11 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             source = msld_text + "\n" + dis_text
             qty_text = first(r'\bQty\.\s*:\s*(\d+x?)\b', source) or first(r'\bQTY\.\s*:\s*(\d+x?)\b', source) or first_ph.get('qty', '')
         feeder_info, records, file_warnings = extract_fixed_table(msld_bytes, msld_name)
+        for record in records:
+            if record.get('master_code') == 'TNC_SWITCH':
+                validation = tnc_switch_validation(record)
+                label = msld_name + ': Switron TNC switch ' + str(record.get('designation') or 'S14')
+                warnings.extend([label + ': ' + message for message in validation['errors']])
         warnings.extend(e2_led_wattage_warning(records, msld_name))
         if not feeder_info:
             warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
