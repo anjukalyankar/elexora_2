@@ -5719,34 +5719,66 @@ def load_rotary_switch_master():
 
 
 def rotary_switch_validation(record, master_item=None):
-    """Compare S13 pole count and lockability with the available Switron master."""
+    """Compare S13 pole count, lockability and current rating with the supplied Switron master."""
     source = clean_value(' '.join([
         str(record.get('designation') or ''),
         str(record.get('description') or ''),
         str(record.get('details') or '')
     ])).upper()
     errors = []
-    pole_match = re.search(r'\b(3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(3|4)\s*POLES?\b', source)
+    pole_match = re.search(
+        r'\b(2|3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(2|3|4)\s*POLES?\b',
+        source
+    )
     source_poles = next((g for g in pole_match.groups() if g), None) if pole_match else None
     master_text = (master_item or {}).get('discription', '').upper()
-    master_pole_match = re.search(r'\b(3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(3|4)\s*POLES?\b', master_text)
+    master_pole_match = re.search(
+        r'\b(2|3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(2|3|4)\s*POLES?\b',
+        master_text
+    )
     master_poles = next((g for g in master_pole_match.groups() if g), None) if master_pole_match else None
+
     source_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', source))
     source_lockable = bool(re.search(r'\bLOCKABLE\b', source)) and not source_non_lockable
     master_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', master_text))
     master_lockable = bool(re.search(r'\bLOCKABLE\b', master_text)) and not master_non_lockable
+
     if not source_poles:
-        errors.append('Number of poles not specified in MSLD; expected 3P or 4P.')
+        errors.append('Number of poles not specified in MSLD; expected 2P, 3P or 4P.')
     elif master_poles and source_poles != master_poles:
-        errors.append('Pole count mismatch: MSLD specifies ' + source_poles + 'P; available master model SPC 25P 449 B/L is ' + master_poles + 'P.')
+        errors.append(
+            'Pole count mismatch: MSLD specifies ' + source_poles +
+            'P; available master model SPC 25P 449 B/L is ' + master_poles + 'P.'
+        )
+
     if source_lockable == source_non_lockable:
         errors.append('Lockability not specified in MSLD; expected LOCKABLE or NON-LOCKABLE.')
     elif source_lockable != master_lockable or source_non_lockable != master_non_lockable:
         expected = 'NON-LOCKABLE' if master_non_lockable else 'LOCKABLE'
         actual = 'NON-LOCKABLE' if source_non_lockable else 'LOCKABLE'
-        errors.append('Lockability mismatch: MSLD specifies ' + actual + '; available master model SPC 25P 449 B/L is ' + expected + '.')
-    return {'errors': errors, 'is_valid': not errors, 'source_poles': source_poles, 'master_poles': master_poles}
+        errors.append(
+            'Lockability mismatch: MSLD specifies ' + actual +
+            '; available master model SPC 25P 449 B/L is ' + expected + '.'
+        )
 
+    current_match = re.search(r'\b(?:CURRENT\s*[:=-]?\s*)?(\d+(?:\.\d+)?)\s*A(?:\s|$|[/,])', source)
+    source_current = float(current_match.group(1)) if current_match else None
+    if source_current is None:
+        errors.append('Current rating not specified in MSLD; required rating is 25A AC/DC.')
+    elif source_current != 25:
+        errors.append(
+            'Current rating mismatch: MSLD specifies ' + str(source_current).rstrip('0').rstrip('.') +
+            'A; required Switron S13 rating is 25A AC/DC.'
+        )
+
+    return {
+        'errors': errors,
+        'is_valid': not errors,
+        'source_poles': source_poles,
+        'master_poles': master_poles,
+        'source_current': source_current,
+        'required_current': 25
+    }
 
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
