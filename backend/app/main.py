@@ -5828,11 +5828,11 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
 
 def e2_led_wattage_warning(records, source_name=''):
     messages = []
-    for record in records:
-        if record.get('master_code') != 'E2_LED':
-            continue
-        source_text = ' '.join([
-            str(record.get('designation') or ''),
+ for record in records:
+  if record.get('master_code') == 'TNC_SWITCH':
+   validation = tnc_switch_validation(record)
+   label = 'Switron TNC switch ' + str(record.get('designation') or 'S14')
+   warnings.extend([label + ': ' + message for message in validation['errors']])
             str(record.get('description') or ''),
             str(record.get('details') or '')
         ])
