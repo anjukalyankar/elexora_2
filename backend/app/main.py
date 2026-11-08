@@ -744,13 +744,13 @@ def em6400ng_spec(record, records):
     ct_text = clean_value(' '.join(str(ct_record.get(k) or '') for k in ('designation', 'description', 'details'))) if ct_record else ''
     pt_text = clean_value(' '.join(str(pt_record.get(k) or '') for k in ('designation', 'description', 'details'))) if pt_record else ''
 
-    accuracy = first_match(r'\\b(?:ACC(?:URACY)?\\.?\\s*CLASS|CLASS\\s*OF\\s*ACCURACY)\\s*[:=\\-]?\\s*(0?\\.\\d+\\s*[A-Z]?)', meter_text)
-    ct_ratio = first_match(r'\\b(?:CTR|CT\\s*RATIO)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?\\s*/\\s*\\d+(?:\\.\\d+)?\\s*A?)', ct_text)
-    secondary_match = re.search(r'/\\s*(\\d+(?:\\.\\d+)?)\\s*A?\\b', ct_ratio, re.I)
+    accuracy = first_match(r'\b(?:ACC(?:URACY)?\.?\s*CLASS|CLASS\s*OF\s*ACCURACY)\s*[:=\-]?\s*(0?\.\d+\s*[A-Z]?)', meter_text)
+    ct_ratio = first_match(r'\b(?:CTR|CT\s*RATIO)\s*[:=]?\s*(\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*A?)', ct_text)
+    secondary_match = re.search(r'/\s*(\d+(?:\.\d+)?)\s*A?\b', ct_ratio, re.I)
     ct_secondary = secondary_match.group(1) + 'A' if secondary_match else ''
-    pt_ratio = first_match(r'\\b(?:PTR|PT\\s*RATIO|POTENTIAL\\s+TRANSFORMER\\s+RATIO)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?\\s*/\\s*\\d+(?:\\.\\d+)?\\s*V?)', pt_text)
+    pt_ratio = first_match(r'\b(?:PTR|PT\s*RATIO|POTENTIAL\s+TRANSFORMER\s+RATIO)\s*[:=]?\s*(\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*V?)', pt_text)
     if not pt_ratio:
-        pt_ratio = first_match(r'\\bRATIO\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?\\s*/\\s*\\d+(?:\\.\\d+)?\\s*V?)', pt_text)
+        pt_ratio = first_match(r'\bRATIO\s*[:=]?\s*(\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*V?)', pt_text)
 
     spec_lines = [
         'EM6400NG',
