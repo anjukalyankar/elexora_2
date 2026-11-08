@@ -814,7 +814,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     meter_validation = {'warnings': meter_missing}
     editable_fields=[]
     editable_indices=[]
-   elif r['master_code']=='7SJ6611':
+  elif r['master_code']=='7SJ6611':
    # Relay validation must use only this equipment row. Passing the full MSLD
    # could borrow an MLFB from another section/row and create a relay BOM line
    # that is not actually specified for this designation.
