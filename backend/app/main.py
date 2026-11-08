@@ -734,6 +734,132 @@ def ct_spec(ct_text, dis_text):
 
 
 
+
+# Cortex-derived VAJH13 catalogue. Values follow the "Relay details VAJx13"
+# sheet: replacement model, auxiliary voltage, contact combination and burden.
+VAJH13_MODELS = [
+    ("VAJH13YF0250ABA", "30V DC", "4 N/O H/R", "LOW"),
+    ("VAJH13YF0250BBA", "30V DC", "4 N/O H/R", "HIGH"),
+    ("VAJH13YF0251ABA", "30V DC", "3 N/O 1 N/C H/R", "LOW"),
+    ("VAJH13YF0251BBA", "30V DC", "3 N/O 1 N/C H/R", "HIGH"),
+    ("VAJH13YF0252ABA", "30V DC", "2 N/O 2 N/C H/R", "LOW"),
+    ("VAJH13YF0252BBA", "30V DC", "2 N/O 2 N/C H/R", "HIGH"),
+    ("VAJH13YF0501ABA", "48 / 50V DC", "3 N/O 1 N/C H/R", "LOW"),
+    ("VAJH13YF0501BBA", "48 / 50V DC", "3 N/O 1 N/C H/R", "HIGH"),
+    ("VAJH13YF0502ABA", "48 / 50V DC", "2 N/O 2 N/C H/R", "LOW"),
+    ("VAJH13YF0502BBA", "48 / 50V DC", "2 N/O 2 N/C H/R", "HIGH"),
+    ("VAJH13YF0750ABA", "110 / 125 V DC", "4 N/O H/R", "LOW"),
+    ("VAJH13YF0750BBA", "110 / 125 V DC", "4 N/O H/R", "HIGH"),
+    ("VAJH13YF0751ABA", "110 / 125 V DC", "3 N/O 1 N/C H/R", "LOW"),
+    ("VAJH13YF0751BBA", "110 / 125 V DC", "3 N/O 1 N/C H/R", "HIGH"),
+    ("VAJH13YF0752ABA", "110 / 125 V DC", "2 N/O 2 N/C H/R", "LOW"),
+    ("VAJH13YF0752BBA", "110 / 125 V DC", "2 N/O 2 N/C H/R", "HIGH"),
+    ("VAJH13YF1000ABA", "220 / 250V DC", "4 N/O H/R", "LOW"),
+    ("VAJH13YF1000BBA", "220 / 250V DC", "4 N/O H/R", "HIGH"),
+    ("VAJH13YF1001ABA", "220 / 250V DC", "3 N/O 1 N/C H/R", "LOW"),
+    ("VAJH13YF1001BBA", "220 / 250V DC", "3 N/O 1 N/C H/R", "HIGH"),
+    ("VAJH13YF1002ABA", "220 / 250V DC", "2 N/O 2 N/C H/R", "LOW"),
+    ("VAJH13YF1002BBA", "220 / 250V DC", "2 N/O 2 N/C H/R", "HIGH"),
+    ("VAJH13YF0000BBA", "24 V DC", "4 N/O H/R", "HIGH"),
+    ("VAJH13YF0001BBA", "24 V DC", "3 N/O 1 N/C H/R", "HIGH"),
+    ("VAJH13YF0002BBA", "24 V DC", "2 N/O 2 N/C H/R", "HIGH"),
+    ("VAJH13YF6001ABA", "220-250V AC", "3 N/O 1 N/C H/R", "LOW"),
+    ("VAJH13YF6002ABA", "220-250V AC", "2 N/O 2 N/C H/R", "LOW"),
+]
+
+def vajh13_spec(record):
+    """Build the approved VAJH13 BOM text and keep MSLD discrepancies separate."""
+    source = clean_value(" ".join(str(record.get(k) or "") for k in ("designation", "description", "details")))
+    upper = source.upper()
+    if not re.search(r"\bVAJH13\b|\bMASTER\s+TRIP\s+RELAY\b", upper):
+        return None, []
+
+    warnings = []
+    model_match = re.search(r"\bVAJH13YF[A-Z0-9]+\b", upper)
+    source_model = model_match.group(0) if model_match else ""
+    voltage_match = re.search(r"\b(?:AUX(?:ILIARY)?\.?\s*(?:SUPPLY|VOLTAGE)?|CONTROL\s+VOLTAGE)\s*:?\s*(\d+(?:\s*[-/]\s*\d+)?\s*V\s*(?:DC|AC))\b|\b(24|30|48|50|110|125|220|230|240|250)\s*V\s*(DC|AC)\b", upper)
+    source_voltage = ""
+    if voltage_match:
+        source_voltage = clean_value(voltage_match.group(1) or (voltage_match.group(2) + "V " + voltage_match.group(3))).upper()
+    contact_match = re.search(r"\b(4\s*N/?O|3\s*N/?O\s*\+?\s*1\s*N/?C|2\s*N/?O\s*\+?\s*2\s*N/?C|1\s*N/?O\s*\+?\s*3\s*N/?C)\b(?:\s*(?:H\s*/\s*R|S\s*/\s*R))?", upper)
+    source_contacts = ""
+    if contact_match:
+        raw = re.sub(r"\s+", " ", contact_match.group(0).upper()).strip()
+        raw = re.sub(r"\s*\+\s*", " ", raw)
+        raw = re.sub(r"\bNO\b", "N/O", raw)
+        raw = re.sub(r"\bNC\b", "N/C", raw)
+        if "H/R" not in raw and re.search(r"\bH\s*/\s*R\b", upper):
+            raw += " H/R"
+        source_contacts = raw
+    burden_match = re.search(r"\b(HIGH|LOW)\s*(?:BURDEN)?\b", upper)
+    source_burden = burden_match.group(1) if burden_match else ""
+
+    def norm_voltage(value):
+        value = re.sub(r"\s+", "", value.upper()).replace("VDC", "V DC").replace("VAC", "V AC")
+        return value.replace("/", "/")
+
+    def norm_contacts(value):
+        value = re.sub(r"\s+", "", value.upper())
+        value = value.replace("NO", "N/O").replace("NC", "N/C").replace("+", "")
+        value = value.replace("H/R", "")
+        return value
+
+    selected = None
+    if source_model:
+        selected = next((item for item in VAJH13_MODELS if item[0] == source_model), None)
+        if not selected:
+            warnings.append("MLFB " + source_model + " is not present in the supplied VAJH13 Cortex mapping.")
+    else:
+        candidates = VAJH13_MODELS
+        if source_voltage:
+            sv = norm_voltage(source_voltage)
+            candidates = [item for item in candidates if sv in norm_voltage(item[1]) or norm_voltage(item[1]) in sv]
+        if source_contacts:
+            sc = norm_contacts(source_contacts)
+            candidates = [item for item in candidates if norm_contacts(item[2]).startswith(sc.replace("H/R", "")) or sc.startswith(norm_contacts(item[2]).replace("H/R", ""))]
+        if source_burden:
+            candidates = [item for item in candidates if item[3] == source_burden]
+        if len(candidates) == 1:
+            selected = candidates[0]
+        elif len(candidates) > 1:
+            warnings.append("VAJH13 MLFB is ambiguous in the Cortex mapping; MSLD must confirm burden or exact MLFB.")
+        else:
+            warnings.append("No VAJH13 MLFB matches the MSLD auxiliary voltage/contact combination in the Cortex mapping.")
+
+    if source_voltage and selected and norm_voltage(source_voltage) not in norm_voltage(selected[1]) and norm_voltage(selected[1]) not in norm_voltage(source_voltage):
+        warnings.append("Auxiliary voltage mismatch: MSLD specifies " + source_voltage + "; Cortex model " + selected[0] + " specifies " + selected[1] + ".")
+    if source_contacts and selected and norm_contacts(source_contacts) != norm_contacts(selected[2]):
+        warnings.append("Contact combination mismatch: MSLD specifies " + source_contacts + "; Cortex model " + selected[0] + " specifies " + selected[2] + ".")
+    if source_burden and selected and source_burden != selected[3]:
+        warnings.append("Burden mismatch: MSLD specifies " + source_burden + "; Cortex model " + selected[0] + " specifies " + selected[3] + ".")
+
+    # Retain the exact agreed BOM layout. If no unique MLFB can be verified,
+    # keep the supplied type code rather than inventing a model number.
+    burden = selected[3] if selected else (source_burden or "[NOT CONFIRMED]")
+    aux_voltage = selected[1] if selected else (source_voltage or "[NOT CONFIRMED]")
+    contacts = selected[2] if selected else (source_contacts or "[NOT CONFIRMED]")
+    model_no = selected[0] if selected else (source_model or "[NOT CONFIRMED]")
+    protection = first_match(r"\[\s*(86)\s*\]", upper) or ("86" if re.search(r"\b86\b", upper) else "[NOT CONFIRMED]")
+    lines = [
+        "GE MAKE",
+        "1P HIGH SPEED TRIP RELAY",
+        "BURDEN : " + burden,
+        "FLUSH MTG, NON DROWOUT, CASE : 1/4 NV",
+        "AUX. VOLTAGE : " + aux_voltage,
+        "CONTACT COMBINATION : " + contacts.replace("N/O", "NO").replace("N/C", "NC"),
+        "WITH FLAG",
+        "TYPE : VAJH13",
+        "PROT.: " + protection,
+        "MODEL.NO: " + model_no
+    ]
+    if not source_voltage:
+        warnings.append("Auxiliary/control voltage is not specified clearly in the MSLD.")
+    if not source_contacts:
+        warnings.append("Contact combination is not specified clearly in the MSLD.")
+    if not protection or protection == "[NOT CONFIRMED]":
+        warnings.append("Protection function is not confirmed in the MSLD.")
+    return lines, warnings
+
 def em6400ng_spec(record, records):
     """Build EM6400NG BOM text, preferring values printed on the meter row."""
     meter_text = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
@@ -887,7 +1013,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec_lines=[clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
-  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None})
+  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
@@ -906,6 +1032,10 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
  elif dis_text.strip():warnings.append('DIS supplied: used as the fixed specification source; MSLD remains the primary project-data source.')
  rows,feeder_name,feeder_qty=build_rows(feeder_info,records,msld_text,dis_text)
  for row in rows:
+  auxiliary_validation = row.get('auxiliary_relay_validation')
+  if auxiliary_validation:
+   auxiliary_label = 'VAJH13 auxiliary trip relay ' + str(row.get('designation', ''))
+   warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
   meter_validation = row.get('meter_validation')
   if meter_validation:
    meter_label = 'EM6400NG meter ' + str(row.get('designation', ''))
@@ -956,6 +1086,10 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         feeders.append({'name': str(feeder_name), 'qty': str(feeder_qty_text), 'quantity': feeder_qty_num, 'source_file': msld_name})
         built, _, _ = build_rows(feeder_info, records, msld_text, dis_text)
         for row in built:
+            auxiliary_validation = row.get('auxiliary_relay_validation')
+            if auxiliary_validation:
+                auxiliary_label = str(msld_name) + ': VAJH13 auxiliary trip relay ' + str(row.get('designation', ''))
+                warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
             meter_validation = row.get('meter_validation')
             if meter_validation:
                 meter_label = str(msld_name) + ': EM6400NG meter ' + str(row.get('designation', ''))
@@ -2431,6 +2565,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
   relay_analysis = None
+  auxiliary_relay_validation = None
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=ct_spec(ct_row_text,dis_text)
@@ -5937,6 +6072,13 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    else:
     spec = r['description']+((' | '+r['details']) if r['details'] else '')
     spec_lines = [clean(spec)] if spec else []
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='VAJH13':
+   spec_lines, vajh13_warnings = vajh13_spec(r)
+   spec = '\n'.join(spec_lines) if spec_lines else (r['description']+((' | '+r['details']) if r['details'] else ''))
+   spec_lines = spec_lines or ([clean(spec)] if spec else [])
+   auxiliary_relay_validation = {'warnings': vajh13_warnings}
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='EM6400NG':
