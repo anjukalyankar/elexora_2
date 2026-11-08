@@ -5719,65 +5719,86 @@ def load_rotary_switch_master():
 
 
 def rotary_switch_validation(record, master_item=None):
-    """Compare S13 pole count, lockability and current rating with the supplied Switron master."""
+    """Validate S13 against the fixed 4P, 25A AC/DC, lockable Switron master."""
     source = clean_value(' '.join([
         str(record.get('designation') or ''),
         str(record.get('description') or ''),
         str(record.get('details') or '')
     ])).upper()
     errors = []
+
     pole_match = re.search(
         r'\b(2|3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(2|3|4)\s*POLES?\b',
         source
     )
-    source_poles = next((g for g in pole_match.groups() if g), None) if pole_match else None
-    master_text = (master_item or {}).get('discription', '').upper()
-    master_pole_match = re.search(
-        r'\b(2|3|4)\s*(?:P|POLE)S?\b|\bNUMBER OF POLES\s*[:=-]?\s*(2|3|4)\s*POLES?\b',
-        master_text
-    )
-    master_poles = next((g for g in master_pole_match.groups() if g), None) if master_pole_match else None
+    source_poles = next((group for group in pole_match.groups() if group), None) if pole_match else None
 
-    source_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', source))
-    source_lockable = bool(re.search(r'\bLOCKABLE\b', source)) and not source_non_lockable
-    master_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', master_text))
-    master_lockable = bool(re.search(r'\bLOCKABLE\b', master_text)) and not master_non_lockable
-
-    if not source_poles:
-        errors.append('Number of poles not specified in MSLD; expected 2P, 3P or 4P.')
-    elif master_poles and source_poles != master_poles:
+    # S13 is fixed at 4P. Do not let a missing/changed master row weaken this rule.
+    if source_poles is None:
+        errors.append('Number of poles not specified in MSLD; required S13 configuration is 4P.')
+    elif source_poles != '4':
         errors.append(
             'Pole count mismatch: MSLD specifies ' + source_poles +
-            'P; available master model SPC 25P 449 B/L is ' + master_poles + 'P.'
+            'P; required S13 configuration is 4P (model SPC 25P 449 B/L).'
         )
 
-    if source_lockable == source_non_lockable:
-        errors.append('Lockability not specified in MSLD; expected LOCKABLE or NON-LOCKABLE.')
+    master_text = (master_item or {}).get('discription', '').upper()
+    master_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', master_text))
+    master_lockable = bool(re.search(r'\bLOCKABLE\b', master_text)) and not master_non_lockable
+    source_non_lockable = bool(re.search(r'\bNON[ -]?LOCKABLE\b', source))
+    source_lockable = bool(re.search(r'\bLOCKABLE\b', source)) and not source_non_lockable
+
+    if not master_item:
+        errors.append('Switron S13 master specification SPC 25P 449 B/L is unavailable; lockability cannot be verified.')
+    elif master_lockable == master_non_lockable:
+        errors.append('Switron S13 master specification does not define lockability; verify the master data.')
+    elif source_lockable == source_non_lockable:
+        expected = 'LOCKABLE' if master_lockable else 'NON-LOCKABLE'
+        errors.append('Lockability not specified in MSLD; required model specification is ' + expected + '.')
     elif source_lockable != master_lockable or source_non_lockable != master_non_lockable:
         expected = 'NON-LOCKABLE' if master_non_lockable else 'LOCKABLE'
         actual = 'NON-LOCKABLE' if source_non_lockable else 'LOCKABLE'
         errors.append(
             'Lockability mismatch: MSLD specifies ' + actual +
-            '; available master model SPC 25P 449 B/L is ' + expected + '.'
+            '; model SPC 25P 449 B/L requires ' + expected + '.'
         )
 
-    current_match = re.search(r'\b(?:CURRENT\s*[:=-]?\s*)?(\d+(?:\.\d+)?)\s*A(?:\s|$|[/,])', source)
+    current_match = re.search(
+        r'\b(?:CURRENT\s*[:=-]?\s*)?(\d+(?:\.\d+)?)\s*A\b',
+        source
+    )
     source_current = float(current_match.group(1)) if current_match else None
+
+    # Check the current type independently from the ampere rating. For example,
+    # "16A AC/DC" has the correct AC/DC type even though its rating is wrong.
+    current_type_match = re.search(
+        r'\bAC\s*/\s*DC\b|\bAC\s*(?:&|AND)\s*DC\b|\bACDC\b',
+        source
+    )
+    source_current_type = 'AC/DC' if current_type_match else None
+
     if source_current is None:
         errors.append('Current rating not specified in MSLD; required rating is 25A AC/DC.')
     elif source_current != 25:
         errors.append(
-            'Current rating mismatch: MSLD specifies ' + str(source_current).rstrip('0').rstrip('.') +
+            'Current rating mismatch: MSLD specifies ' +
+            str(source_current).rstrip('0').rstrip('.') +
             'A; required Switron S13 rating is 25A AC/DC.'
         )
+
+    if not current_type_match:
+        errors.append('Current type mismatch: MSLD must specify AC/DC for Switron S13.')
 
     return {
         'errors': errors,
         'is_valid': not errors,
         'source_poles': source_poles,
-        'master_poles': master_poles,
+        'required_poles': '4',
         'source_current': source_current,
-        'required_current': 25
+        'required_current': 25,
+        'source_current_type': source_current_type,
+        'required_current_type': 'AC/DC',
+        'current_type_verified': bool(current_type_match)
     }
 
 
