@@ -875,9 +875,18 @@ def vajh13_spec(record):
     return lines, warnings
 
 
-def pt_damping_resistor_spec(record):
+def pt_damping_resistor_spec(record, records=None):
     """Return the approved PT damping-resistor BOM text and MSLD mismatch warnings."""
     source = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
+    # PT/open-delta context is often printed on the PT row, not repeated on
+    # the separate R11 damping-resistor row. Use same-page PT data as context.
+    related_pt_text = ' '.join(
+        clean_value(' '.join(str(item.get(k) or '') for k in ('designation', 'description', 'details')))
+        for item in (records or [])
+        if item.get('master_code') == 'PT'
+        and item.get('source_page') == record.get('source_page')
+    )
+    application_context = source + ' ' + related_pt_text
     resistance_match = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(?:OHMS?|Ω)(?![A-Z])', source, re.I)
     power_match = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(?:WATTS?|W)\b', source, re.I)
     warnings = []
@@ -889,7 +898,7 @@ def pt_damping_resistor_spec(record):
         warnings.append('Power rating is missing or unreadable in the MSLD; required value is 200 Watts.')
     elif float(power_match.group(1)) != 200:
         warnings.append('Power rating mismatch: MSLD specifies ' + power_match.group(1) + ' Watts; required value is 200 Watts.')
-    if not re.search(r'PT|POTENTIAL\s+TRANSFORMER|OPEN\s+DELTA', source, re.I):
+    if not re.search(r'PT|POTENTIAL\s+TRANSFORMER|OPEN\s+DELTA|\bOD\b', application_context, re.I):
         warnings.append('PT open-delta application is not confirmed in the MSLD.')
     return [
         'PT DAMPING RESISTOR',
@@ -5562,7 +5571,7 @@ def master_match(description,details,designation):
  if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
- if 'PT DAMPING RESISTOR' in s or ('DAMPING RESISTOR' in s and ('PT' in s or 'OPEN DELTA' in s)):return 'PT_DAMPING_RESISTOR'
+ if 'DAMPING RESISTOR' in s:return 'PT_DAMPING_RESISTOR'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
  if 'VAJH13' in s or 'MASTER TRIP RELAY' in s:return 'VAJH13'
@@ -6132,7 +6141,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='PT_DAMPING_RESISTOR':
-   spec_lines, damping_warnings = pt_damping_resistor_spec(r)
+   spec_lines, damping_warnings = pt_damping_resistor_spec(r, records)
    spec = '\n'.join(spec_lines)
    damping_resistor_validation = {'warnings': damping_warnings}
    editable_fields=[]
