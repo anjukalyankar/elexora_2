@@ -411,7 +411,7 @@ def designation_qty(des):
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
 def master_match(description,details,designation):
- s=(description+' '+details).upper()
+ s=(description+' '+details+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
