@@ -5860,7 +5860,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
      'CURRENT: 25A AC/DC',
      'MODEL NO: SPC 25P 449 B/L'
     ]
-    spec = '\\n'.join(spec_lines)
+    spec = '\n'.join(spec_lines)
    else:
     spec = r['description']+((' | '+r['details']) if r['details'] else '')
     spec_lines = [clean(spec)] if spec else []
