@@ -859,7 +859,7 @@ def vajh13_spec(record):
         "BURDEN : " + burden,
         "FLUSH MTG, NON DROWOUT, CASE : 1/4 NV",
         "AUX. VOLTAGE : " + aux_voltage,
-        "CONTACT COMBINATION : " + re.sub(r"\\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", "HR").replace("3NO1NC", "3NO+1NC").replace("2NO2NC", "2NO+2NC").replace("4NO", "4NO"),
+        "CONTACT COMBINATION : " + re.sub(r"\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", "HR").replace("3NO1NC", "3NO+1NC").replace("2NO2NC", "2NO+2NC").replace("4NO", "4NO"),
         "WITH FLAG",
         "TYPE : VAJH13",
         "PROT.: " + protection,
