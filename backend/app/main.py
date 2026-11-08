@@ -5562,6 +5562,7 @@ def master_match(description,details,designation):
  if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
+ if 'PT DAMPING RESISTOR' in s or ('DAMPING RESISTOR' in s and ('PT' in s or 'OPEN DELTA' in s)):return 'PT_DAMPING_RESISTOR'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
  if 'VAJH13' in s or 'MASTER TRIP RELAY' in s:return 'VAJH13'
