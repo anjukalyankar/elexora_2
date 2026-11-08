@@ -5930,6 +5930,12 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     spec_lines = [clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
+  elif r['master_code']=='EM6400NG':
+   spec_lines, meter_missing = em6400ng_spec(r, records)
+   spec = '\n'.join(spec_lines)
+   meter_validation = {'warnings': meter_missing}
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='7SJ6611':
    # Relay validation must use only this equipment row. Passing the full MSLD
    # could borrow an MLFB from another section/row and create a relay BOM line
@@ -5994,7 +6000,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec_lines=[clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
-  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None})
+  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
@@ -6042,6 +6048,10 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
    warnings.extend([label + ': ' + message for message in validation['errors']])
  warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
+  meter_validation = row.get('meter_validation')
+  if meter_validation:
+   meter_label = 'EM6400NG meter ' + str(row.get('designation', ''))
+   warnings.extend([meter_label + ': ' + message for message in meter_validation.get('warnings', [])])
   validation=row.get('relay_validation')
   if validation:
    relay_label='7SJ66 relay '+str(row.get('designation',''))
@@ -6099,6 +6109,10 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         feeders.append({'name': str(feeder_name), 'qty': str(feeder_qty_text), 'quantity': feeder_qty_num, 'source_file': msld_name})
         built, _, _ = build_rows(feeder_info, records, msld_text, dis_text)
         for row in built:
+            meter_validation = row.get('meter_validation')
+            if meter_validation:
+                meter_label = str(msld_name) + ': EM6400NG meter ' + str(row.get('designation', ''))
+                warnings.extend([meter_label + ': ' + message for message in meter_validation.get('warnings', [])])
             validation = row.get('relay_validation')
             if validation:
                 relay_label = str(msld_name) + ': 7SJ66 relay ' + str(row.get('designation', ''))
