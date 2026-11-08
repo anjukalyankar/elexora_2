@@ -735,22 +735,31 @@ def ct_spec(ct_text, dis_text):
 
 
 def em6400ng_spec(record, records):
-    """Build EM6400NG BOM text from its meter row and same-page CT/PT rows."""
+    """Build EM6400NG BOM text, preferring values printed on the meter row."""
     meter_text = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
     page = record.get('source_page')
-    related = [item for item in records if item.get('source_page') == page]
+    related = [item for item in records if page is not None and item.get('source_page') == page]
     ct_record = next((item for item in related if item.get('master_code') == 'CT'), None)
     pt_record = next((item for item in related if item.get('master_code') == 'PT'), None)
     ct_text = clean_value(' '.join(str(ct_record.get(k) or '') for k in ('designation', 'description', 'details'))) if ct_record else ''
     pt_text = clean_value(' '.join(str(pt_record.get(k) or '') for k in ('designation', 'description', 'details'))) if pt_record else ''
 
-    accuracy = first_match(r'\b(?:ACC(?:URACY)?\.?\s*CLASS|CLASS\s*OF\s*ACCURACY)\s*[:=\-]?\s*(0?\.\d+\s*[A-Z]?)', meter_text)
-    ct_ratio = first_match(r'\b(?:CTR|CT\s*RATIO)\s*[:=]?\s*(\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*A?)', ct_text)
+    # The meter row is the primary source: keep the complete ratio tokens,
+    # including transformer connection notation such as /RT3/.
+    accuracy = first_match(r'\b(?:ACC(?:URACY)?\.?\s*CLASS|CLASS\s*OF\s*ACCURACY|CLASS)\s*[:=\-]?\s*(\d+(?:\.\d+)?\s*[A-Z]?)', meter_text)
+    ct_ratio = first_match(r'\b(?:CTR|CT\s*RATIO)\s*[:=]?\s*([^,;\n]+)', meter_text)
+    if not ct_ratio:
+        ct_ratio = first_match(r'\b(?:CTR|CT\s*RATIO)\s*[:=]?\s*([^,;\n]+)', ct_text)
+    ct_ratio = clean_value(ct_ratio).rstrip(' .') if ct_ratio else ''
     secondary_match = re.search(r'/\s*(\d+(?:\.\d+)?)\s*A?\b', ct_ratio, re.I)
     ct_secondary = secondary_match.group(1) + 'A' if secondary_match else ''
-    pt_ratio = first_match(r'\b(?:PTR|PT\s*RATIO|POTENTIAL\s+TRANSFORMER\s+RATIO)\s*[:=]?\s*(\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*V?)', pt_text)
+
+    pt_ratio = first_match(r'\b(?:PTR|PT\s*RATIO|POTENTIAL\s+TRANSFORMER\s+RATIO)\s*[:=]?\s*([^,;\n]+)', meter_text)
     if not pt_ratio:
-        pt_ratio = first_match(r'\bRATIO\s*[:=]?\s*(\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*V?)', pt_text)
+        pt_ratio = first_match(r'\b(?:PTR|PT\s*RATIO|POTENTIAL\s+TRANSFORMER\s+RATIO)\s*[:=]?\s*([^,;\n]+)', pt_text)
+    if not pt_ratio:
+        pt_ratio = first_match(r'\bRATIO\s*[:=]?\s*([^,;\n]+)', pt_text)
+    pt_ratio = clean_value(pt_ratio).rstrip(' .') if pt_ratio else ''
 
     spec_lines = [
         'EM6400NG',
@@ -768,9 +777,9 @@ def em6400ng_spec(record, records):
     if not accuracy:
         missing.append('accuracy class is missing or unreadable in the meter row')
     if not ct_ratio or not ct_secondary:
-        missing.append('CT ratio/secondary is missing or unreadable in the corresponding CT row')
+        missing.append('CT ratio/secondary is missing or unreadable in the meter row and corresponding CT row')
     if not pt_ratio:
-        missing.append('PT ratio is missing or unreadable in the corresponding PT row')
+        missing.append('PT ratio is missing or unreadable in the meter row and corresponding PT row')
     return spec_lines, missing
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
