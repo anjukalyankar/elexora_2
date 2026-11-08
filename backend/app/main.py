@@ -878,7 +878,7 @@ def vajh13_spec(record):
 def pt_damping_resistor_spec(record):
     """Return the approved PT damping-resistor BOM text and MSLD mismatch warnings."""
     source = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
-    resistance_match = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(?:OHMS?|Ω|OHM)\b?', source, re.I)
+    resistance_match = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(?:OHMS?|Ω)(?![A-Z])', source, re.I)
     power_match = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(?:WATTS?|W)\b', source, re.I)
     warnings = []
     if not resistance_match:
