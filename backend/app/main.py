@@ -859,7 +859,7 @@ def vajh13_spec(record):
         "BURDEN : " + burden,
         "FLUSH MTG, NON DROWOUT, CASE : 1/4 NV",
         "AUX. VOLTAGE : " + aux_voltage,
-        "CONTACT COMBINATION : " + re.sub(r"\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", "HR").replace("3NO1NC", "3NO+1NC").replace("2NO2NC", "2NO+2NC").replace("4NO", "4NO"),
+        "CONTACT COMBINATION : " + ("3NO+1NC HR" if "3NO1NC" in re.sub(r"[^A-Z0-9]", "", contacts.upper()) else "2NO+2NC HR" if "2NO2NC" in re.sub(r"[^A-Z0-9]", "", contacts.upper()) else "4NO HR" if "4NO" in re.sub(r"[^A-Z0-9]", "", contacts.upper()) else re.sub(r"\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", " HR")) ,
         "WITH FLAG",
         "TYPE : VAJH13",
         "PROT.: " + protection,
@@ -1053,6 +1053,10 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
   if meter_validation:
    meter_label = 'EM6400NG meter ' + str(row.get('designation', ''))
    warnings.extend([meter_label + ': ' + message for message in meter_validation.get('warnings', [])])
+  auxiliary_validation = row.get('auxiliary_relay_validation')
+  if auxiliary_validation:
+   auxiliary_label = 'VAJH13 master trip relay ' + str(row.get('designation', ''))
+   warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
   validation=row.get('relay_validation')
   if validation:
    relay_label='7SJ66 relay '+str(row.get('designation',''))
@@ -1107,6 +1111,10 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             if meter_validation:
                 meter_label = str(msld_name) + ': EM6400NG meter ' + str(row.get('designation', ''))
                 warnings.extend([meter_label + ': ' + message for message in meter_validation.get('warnings', [])])
+            auxiliary_validation = row.get('auxiliary_relay_validation')
+            if auxiliary_validation:
+                auxiliary_label = str(msld_name) + ': VAJH13 master trip relay ' + str(row.get('designation', ''))
+                warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
             validation = row.get('relay_validation')
             if validation:
                 relay_label = str(msld_name) + ': 7SJ66 relay ' + str(row.get('designation', ''))
@@ -2252,13 +2260,15 @@ def designation_qty(des):
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
 def master_match(description,details,designation):
- s=(description+' '+details).upper()
+ # This final definition is active at runtime; include designation and details.
+ s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
+ if 'VAJH13' in s or 'MASTER TRIP RELAY' in s:return 'VAJH13'
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
@@ -5515,7 +5525,8 @@ def designation_qty(des):
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
 def master_match(description,details,designation):
- s=(description+' '+details).upper()
+ # Active final classifier: designation may contain the equipment type.
+ s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
@@ -5524,6 +5535,7 @@ def master_match(description,details,designation):
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
+ if 'VAJH13' in s or 'MASTER TRIP RELAY' in s:return 'VAJH13'
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
@@ -6217,6 +6229,10 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
   if meter_validation:
    meter_label = 'EM6400NG meter ' + str(row.get('designation', ''))
    warnings.extend([meter_label + ': ' + message for message in meter_validation.get('warnings', [])])
+  auxiliary_validation = row.get('auxiliary_relay_validation')
+  if auxiliary_validation:
+   auxiliary_label = 'VAJH13 master trip relay ' + str(row.get('designation', ''))
+   warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
   validation=row.get('relay_validation')
   if validation:
    relay_label='7SJ66 relay '+str(row.get('designation',''))
@@ -6278,6 +6294,10 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             if meter_validation:
                 meter_label = str(msld_name) + ': EM6400NG meter ' + str(row.get('designation', ''))
                 warnings.extend([meter_label + ': ' + message for message in meter_validation.get('warnings', [])])
+            auxiliary_validation = row.get('auxiliary_relay_validation')
+            if auxiliary_validation:
+                auxiliary_label = str(msld_name) + ': VAJH13 master trip relay ' + str(row.get('designation', ''))
+                warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
             validation = row.get('relay_validation')
             if validation:
                 relay_label = str(msld_name) + ': 7SJ66 relay ' + str(row.get('designation', ''))
