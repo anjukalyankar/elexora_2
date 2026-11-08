@@ -793,7 +793,7 @@ def vajh13_spec(record):
             raw += " H/R"
         source_contacts = raw
     burden_match = re.search(r"\b(HIGH|LOW)\s*(?:BURDEN)?\b", upper)
-    source_burden = burden_match.group(1) if burden_match else ""
+    source_burden = next((group for group in burden_match.groups() if group), "") if burden_match else ""
 
     def norm_voltage(value):
         value = re.sub(r"\s+", "", value.upper()).replace("VDC", "V DC").replace("VAC", "V AC")
@@ -841,7 +841,7 @@ def vajh13_spec(record):
     # Retain the exact agreed BOM layout. If no unique MLFB can be verified,
     # keep the supplied type code rather than inventing a model number.
     burden = selected[3] if selected else (source_burden or "[NOT CONFIRMED]")
-    aux_voltage = selected[1] if selected else (source_voltage or "[NOT CONFIRMED]")
+    aux_voltage = source_voltage or (selected[1] if selected else "[NOT CONFIRMED]")
     contacts = selected[2] if selected else (source_contacts or "[NOT CONFIRMED]")
     model_no = selected[0] if selected else (source_model or "[NOT CONFIRMED]")
     protection = first_match(r"\[\s*(86)\s*\]", upper) or ("86" if re.search(r"\b86\b", upper) else "[NOT CONFIRMED]")
@@ -851,7 +851,7 @@ def vajh13_spec(record):
         "BURDEN : " + burden,
         "FLUSH MTG, NON DROWOUT, CASE : 1/4 NV",
         "AUX. VOLTAGE : " + aux_voltage,
-        "CONTACT COMBINATION : " + contacts.replace("N/O", "NO").replace("N/C", "NC"),
+        "CONTACT COMBINATION : " + re.sub(r"\\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", "HR").replace("NO", "NO+").replace("NC", "NC").replace("++", "+").replace("3NO+1NC", "3NO+1NC").replace("2NO+2NC", "2NO+2NC").replace("4NO", "4NO"),
         "WITH FLAG",
         "TYPE : VAJH13",
         "PROT.: " + protection,
