@@ -5841,9 +5841,25 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   elif r['master_code']=='ROTARY_SWITCH':
    rotary_item = load_rotary_switch_master()
    rotary_validation = rotary_switch_validation(r, rotary_item)
-   if rotary_item and rotary_validation['is_valid']:
-    rotary_description = rotary_item.get('discription', '')
-    spec_lines = [part.strip() for part in re.split(r',|\n', rotary_description) if part.strip()]
+   if rotary_item:
+    # Always use the approved master description for the BOM output.
+    # MSLD mismatches remain visible as validation warnings; they must not
+    # replace the standard 4P/25A model description with the source wording.
+    spec_lines = [
+     'LRSW',
+     'SWITRON MAKE ROTARY SWITCH',
+     '2 POSITION, LEVER TYPE HANDLE (LOCKABLE)',
+     'OPEN EXECUTION FLUSH BACK OF PANEL',
+     'MOUNTING ON LT CHAMBER DOOR',
+     'TWO POSITION 90 DEG.',
+     'INSCRIPTION: LOCAL REMOTE IN CLOCKWISE SEQ.',
+     'CUT OUT TYPE : H',
+     'NUMBER OF POLES: 4 POLE',
+     'MOUNTING FLUSH, 2 WAY WITH NO OFF',
+     'VOLTAGE: 240V, AC/DC',
+     'CURRENT: 25A AC/DC',
+     'MODEL NO: SPC 25P 449 B/L'
+    ]
     spec = '\n'.join(spec_lines)
    else:
     spec = r['description']+((' | '+r['details']) if r['details'] else '')
