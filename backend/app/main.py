@@ -814,7 +814,11 @@ def vajh13_spec(record):
         candidates = VAJH13_MODELS
         if source_voltage:
             sv = norm_voltage(source_voltage)
-            candidates = [item for item in candidates if sv in norm_voltage(item[1]) or norm_voltage(item[1]) in sv]
+            source_vm = re.search(r"(\\d+)V?(DC|AC)", sv)
+            def same_aux_voltage(value):
+                candidate_vm = re.search(r"(\\d+)V?(DC|AC)", norm_voltage(value))
+                return bool(source_vm and candidate_vm and source_vm.group(1) == candidate_vm.group(1) and source_vm.group(2) == candidate_vm.group(2))
+            candidates = [item for item in candidates if same_aux_voltage(item[1])]
         if source_contacts:
             sc = norm_contacts(source_contacts)
             candidates = [item for item in candidates if norm_contacts(item[2]).startswith(sc.replace("H/R", "")) or sc.startswith(norm_contacts(item[2]).replace("H/R", ""))]
