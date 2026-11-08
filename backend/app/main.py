@@ -5768,11 +5768,14 @@ def rotary_switch_validation(record, master_item=None):
         source
     )
     source_current = float(current_match.group(1)) if current_match else None
+
+    # Check the current type independently from the ampere rating. For example,
+    # "16A AC/DC" has the correct AC/DC type even though its rating is wrong.
     current_type_match = re.search(
-        r'\b25\s*A\s*[,;:-]?\s*(?:AC\s*/\s*DC|AC\s*(?:&|AND)\s*DC|ACDC)\b'
-        r'|\b(?:AC\s*/\s*DC|AC\s*(?:&|AND)\s*DC|ACDC)\s*[,;:-]?\s*(?:CURRENT\s*[:=-]?\s*)?25\s*A\b',
+        r'\bAC\s*/\s*DC\b|\bAC\s*(?:&|AND)\s*DC\b|\bACDC\b',
         source
     )
+    source_current_type = 'AC/DC' if current_type_match else None
 
     if source_current is None:
         errors.append('Current rating not specified in MSLD; required rating is 25A AC/DC.')
@@ -5782,8 +5785,9 @@ def rotary_switch_validation(record, master_item=None):
             str(source_current).rstrip('0').rstrip('.') +
             'A; required Switron S13 rating is 25A AC/DC.'
         )
-    elif not current_type_match:
-        errors.append('Current type not specified: required Switron S13 rating is 25A AC/DC.')
+
+    if not current_type_match:
+        errors.append('Current type mismatch: MSLD must specify AC/DC for Switron S13.')
 
     return {
         'errors': errors,
@@ -5792,6 +5796,8 @@ def rotary_switch_validation(record, master_item=None):
         'required_poles': '4',
         'source_current': source_current,
         'required_current': 25,
+        'source_current_type': source_current_type,
+        'required_current_type': 'AC/DC',
         'current_type_verified': bool(current_type_match)
     }
 
