@@ -418,6 +418,7 @@ def master_match(description,details,designation):
  if 'CURRENT TRANSFORMER' in s:return 'CT'
  if 'POTENTIAL TRANSFORMER' in s:return 'PT'
  if re.search(r'\b7SJ66\d{2}\b', s) or 'NUM. PROT. RELAY' in s or 'NUMERICAL PROTECTION RELAY' in s:return '7SJ6611'
+ if 'VAJH13' in s or 'MASTER TRIP RELAY' in s:return 'VAJH13'
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
