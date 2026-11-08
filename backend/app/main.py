@@ -435,7 +435,7 @@ def extract_fixed_table(data,filename):
   # Q10 is the VCB row immediately above the equipment table. It sits
   # above the normal equipment-row lower boundary, so extract its complete
   # MSLD description/details explicitly rather than clipping it at y=490.
-  q10_desc=text_in_band(words,50,275,455,515)
+  q10_desc=text_in_band(words,50,275,460,490)
   q10_details=text_in_band(words,320,615,455,515)
   if q10_desc or q10_details:
    records.append({'source_page':page_no,'description':q10_desc,'designation':'Q10','details':q10_details,'master_code':master_match(q10_desc,q10_details,'Q10'),'quantity':1,'section':'MSLD equipment'})
