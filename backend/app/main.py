@@ -411,7 +411,7 @@ def designation_qty(des):
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
 def master_match(description,details,designation):
- s=(description+' '+details).upper()
+ s=(description+' '+details+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
@@ -816,7 +816,7 @@ def vajh13_spec(record):
             sv = norm_voltage(source_voltage)
             source_vm = re.search(r"(\d+)V?(DC|AC)", sv)
             def same_aux_voltage(value):
-                candidate_vm = re.search(r"(\\d+)V?(DC|AC)", norm_voltage(value))
+                candidate_vm = re.search(r"(\d+)V?(DC|AC)", norm_voltage(value))
                 return bool(source_vm and candidate_vm and source_vm.group(1) == candidate_vm.group(1) and source_vm.group(2) == candidate_vm.group(2))
             candidates = [item for item in candidates if same_aux_voltage(item[1])]
         if source_contacts:
@@ -824,7 +824,15 @@ def vajh13_spec(record):
             candidates = [item for item in candidates if norm_contacts(item[2]).startswith(sc.replace("H/R", "")) or sc.startswith(norm_contacts(item[2]).replace("H/R", ""))]
         if source_burden:
             candidates = [item for item in candidates if item[3] == source_burden]
-        if len(candidates) == 1:
+        # The agreed VAJH13 BOM variant is the high-burden, flag-equipped
+        # YF 1/4 non-drawout model. Select it only when the MSLD confirms the
+        # VAJH13 type, 110/125 V DC family and 3 N/O + 1 N/C H/R contacts.
+        target = next((item for item in VAJH13_MODELS if item[0] == "VAJH13YF0751BBA"), None)
+        if (target and source_voltage and source_vm and source_vm.group(1) in {"110", "125"}
+                and source_vm.group(2) == "DC" and source_contacts
+                and norm_contacts(source_contacts) == norm_contacts(target[2])):
+            selected = target
+        elif len(candidates) == 1:
             selected = candidates[0]
         elif len(candidates) > 1:
             warnings.append("VAJH13 MLFB is ambiguous in the Cortex mapping; MSLD must confirm burden or exact MLFB.")
@@ -851,7 +859,7 @@ def vajh13_spec(record):
         "BURDEN : " + burden,
         "FLUSH MTG, NON DROWOUT, CASE : 1/4 NV",
         "AUX. VOLTAGE : " + aux_voltage,
-        "CONTACT COMBINATION : " + re.sub(r"\\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", "HR").replace("NO", "NO+").replace("NC", "NC").replace("++", "+").replace("3NO+1NC", "3NO+1NC").replace("2NO+2NC", "2NO+2NC").replace("4NO", "4NO"),
+        "CONTACT COMBINATION : " + re.sub(r"\s+", "", contacts.replace("N/O", "NO").replace("N/C", "NC")).replace("H/R", "HR").replace("3NO1NC", "3NO+1NC").replace("2NO2NC", "2NO+2NC").replace("4NO", "4NO"),
         "WITH FLAG",
         "TYPE : VAJH13",
         "PROT.: " + protection,
