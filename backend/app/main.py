@@ -744,7 +744,7 @@ def em6400ng_spec(record, records):
     ct_text = clean_value(' '.join(str(ct_record.get(k) or '') for k in ('designation', 'description', 'details'))) if ct_record else ''
     pt_text = clean_value(' '.join(str(pt_record.get(k) or '') for k in ('designation', 'description', 'details'))) if pt_record else ''
 
-    accuracy = first_match(r'\\b(?:ACC(?:URACY)?\\s*CLASS|CLASS\\s*OF\\s*ACCURACY)\\s*[:=\\-]?\\s*(0?\\.\\d+\\s*[A-Z]?)', meter_text)
+    accuracy = first_match(r'\\b(?:ACC(?:URACY)?\\.?\\s*CLASS|CLASS\\s*OF\\s*ACCURACY)\\s*[:=\\-]?\\s*(0?\\.\\d+\\s*[A-Z]?)', meter_text)
     ct_ratio = first_match(r'\\b(?:CTR|CT\\s*RATIO)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?\\s*/\\s*\\d+(?:\\.\\d+)?\\s*A?)', ct_text)
     secondary_match = re.search(r'/\\s*(\\d+(?:\\.\\d+)?)\\s*A?\\b', ct_ratio, re.I)
     ct_secondary = secondary_match.group(1) + 'A' if secondary_match else ''
@@ -777,6 +777,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
   relay_analysis = None
+  meter_validation = None
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=ct_spec(ct_row_text,dis_text)
@@ -809,7 +810,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_indices=[]
   elif r['master_code']=='EM6400NG':
     spec_lines, meter_missing = em6400ng_spec(r, records)
-    spec = '\\n'.join(spec_lines)
+    spec = '\n'.join(spec_lines)
     meter_validation = {'warnings': meter_missing}
     editable_fields=[]
     editable_indices=[]
