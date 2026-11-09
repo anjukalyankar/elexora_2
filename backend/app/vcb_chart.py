@@ -41,14 +41,18 @@ def build_3ah3_q10_spec(record, dis_text="", msld_text=""):
     )
     plug = _first(r"\b(\d+)\s*[- ]?way\s+plug\b", source)
 
+    # Coil and motor supplies can be on the continuation line beneath Q10
+    # in the MSLD, outside the fixed-table record. Supplement the record with
+    # explicitly labelled MOTOR / C.C / T.C values from the MSLD text.
+    coil_source = _clean(source + " " + msld_text)
     motor = _groups(
-        r"\bMOTOR\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b", source
+        r"\bMOTOR\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b", coil_source
     )
     closing = _groups(
-        r"\bC\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b", source
+        r"\bC\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b", coil_source
     )
     trip = _groups(
-        r"\bT\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b", source
+        r"\bT\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b", coil_source
     )
 
     warnings = []
