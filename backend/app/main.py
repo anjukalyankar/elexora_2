@@ -204,12 +204,12 @@ def vcb_spec(record, dis_text, msld_text):
     msld = clean_value(msld_text or '')
     warnings = []
 
-    chart_mlfb = (master.get('model') or '3AH3-3152-EFFW-AFF2').strip().upper()
-    found_mlfb = re.search(r'\b3AH3-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+\b', source, re.I)
-    source_mlfb = found_mlfb.group(0).upper() if found_mlfb else ''
-    mlfb = source_mlfb or chart_mlfb
-    if source_mlfb and source_mlfb != chart_mlfb:
-        warnings.append('MLFB ' + source_mlfb + ' differs from the uploaded selection-chart MLFB ' + chart_mlfb + '; no substitution was made.')
+    # The MSLD contains the breaker ratings, not the complete Siemens MLFB.
+    # Resolve the full MLFB only from the Q10 selection-chart master record.
+    chart_mlfb = (master.get('model') or '').strip().upper()
+    mlfb = chart_mlfb
+    if not mlfb:
+        warnings.append('Complete Q10 MLFB is missing from the VCB selection-chart master record; do not issue this BOM line until the chart mapping is restored.')
 
     def dis_value(section, label):
         pattern = r'\b' + re.escape(section) + r'\s+' + re.escape(label) + r'\s*:\s*([^\n\r]+)'
