@@ -198,35 +198,38 @@ def load_vcb_master():
 
 
 def vcb_spec(record, dis_text, msld_text):
-    """Generate the Q10 VCB BOM description in the approved line-by-line format."""
+    """Generate Q10 VCB description using the extracted Q10 row and DIS values."""
     master = load_vcb_master() or {}
-    source = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
+    # Q10 is extracted as one record from the MSLD table. Keep matching scoped
+    # to that row so values from other equipment cannot be mistaken for VCB data.
+    source = clean_value(' '.join(
+        str(record.get(k) or '') for k in ('designation', 'description', 'details')
+    )).upper()
     warnings = []
 
-    # The complete Siemens MLFB is sourced only from the uploaded 3AH3
-    # selection-chart record stored in the existing material master CSV.
+    # MLFB comes from the 3AH3 selection-chart master record.
     mlfb = (master.get('model') or '').strip().upper()
     if not mlfb:
         warnings.append('Complete Q10 MLFB is missing from the 3AH3 selection-chart master record; verify the chart mapping.')
 
     def dis_value(section, label):
-        pattern = r'\\b' + re.escape(section) + r'\\s+' + re.escape(label) + r'\\s*:\\s*([^\\n\\r]+)'
+        pattern = r'\b' + re.escape(section) + r'\s+' + re.escape(label) + r'\s*:\s*([^\n\r]+)'
         match = re.search(pattern, dis_text or '', re.I)
         return clean_value(match.group(1)) if match else ''
 
     def voltage_value(value):
-        match = re.search(r'(\\d+(?:\\.\\d+)?)\\s*kV', value or '', re.I)
+        match = re.search(r'(\d+(?:\.\d+)?)\s*kV', value or '', re.I)
         return match.group(1) + 'kV' if match else ''
 
-    # Rated system voltage and impulse withstand voltage come from the DIS.
+    # Rated system and impulse withstand voltages are read from DIS.
     system_voltage = voltage_value(dis_value('1.03.00', 'Rated operational voltage'))
     impulse_voltage = voltage_value(dis_value('1.07.00', 'Rated Impulse voltage'))
 
-    rated_current_match = re.search(r'\\b(\\d+(?:\\.\\d+)?)\\s*A\\b', source, re.I)
+    rated_current_match = re.search(r'\b(\d+(?:\.\d+)?)\s*A\b', source, re.I)
     rated_current = rated_current_match.group(1) if rated_current_match else ''
 
     short_current_match = re.search(
-        r'\\b(\\d+(?:\\.\\d+)?)\\s*kA\\s*/\\s*(\\d+)\\s*(?:SEC|SECONDS?)\\b',
+        r'\b(\d+(?:\.\d+)?)\s*kA\s*/\s*(\d+)\s*(?:SEC|SECONDS?)\b',
         source, re.I
     )
     if short_current_match:
@@ -234,18 +237,23 @@ def vcb_spec(record, dis_text, msld_text):
         short_duration = short_current_match.group(2) + ' SEC'
     else:
         fault_level = dis_value('1.10.00', 'System fault level / Duration')
-        fault_match = re.search(r'\\b(\\d+(?:\\.\\d+)?)\\s*kA\\s+for\\s+(\\d+)\\s*S\\b', fault_level, re.I)
+        fault_match = re.search(
+            r'\b(\d+(?:\.\d+)?)\s*kA\s+for\s+(\d+)\s*(?:S|SEC|SECONDS?)\b',
+            fault_level, re.I
+        )
         short_current = fault_match.group(1) + 'kA' if fault_match else ''
         short_duration = fault_match.group(2) + ' SEC' if fault_match else ''
 
-    contacts_match = re.search(r'\\b(\\d+)\\s*N\\s*/?\\s*O\\s*\\+\\s*(\\d+)\\s*N\\s*/?\\s*C\\b', source, re.I)
+    contacts_match = re.search(
+        r'\b(\d+)\s*N\s*/?\s*O\s*\+\s*(\d+)\s*N\s*/?\s*C\b', source, re.I
+    )
     contacts = contacts_match.group(1) + 'NO + ' + contacts_match.group(2) + 'NC' if contacts_match else ''
-    plug_match = re.search(r'\\b(\\d+)\\s*[- ]?WAY\\s+PLUG\\b', source, re.I)
+    plug_match = re.search(r'\b(\d+)\s*[- ]?WAY\s+PLUG\b', source, re.I)
     plug_pins = plug_match.group(1) if plug_match else ''
 
-    motor = re.search(r'\\bMOTOR\\s*:\\s*(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', source, re.I)
-    closing = re.search(r'\\bC\\.?\\s*C\\.?\\s*:\\s*(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', source, re.I)
-    tripping = re.search(r'\\bT\\.?\\s*C\\.?\\s*:\\s*(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', source, re.I)
+    motor = re.search(r'\bMOTOR\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', source, re.I)
+    closing = re.search(r'\bC\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', source, re.I)
+    tripping = re.search(r'\bT\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', source, re.I)
     motor_supply = motor.group(1) + 'V ' + motor.group(2).upper() if motor else ''
     closing_supply = closing.group(1) + 'V ' + closing.group(2).upper() if closing else ''
     tripping_supply = tripping.group(1) + 'V ' + tripping.group(2).upper() if tripping else ''
@@ -272,8 +280,6 @@ def vcb_spec(record, dis_text, msld_text):
     if short_duration:
         capacity += ' FOR ' + short_duration
 
-    # Keep this wording, order and line structure aligned with the user's
-    # approved BOM example. Do not substitute example electrical ratings.
     lines = [
         'CB' + rated_current + 'A',
         manufacturer + ' MAKE VACCUM CB, TYPE 3AH3, ' + rated_current + 'AMPS',
