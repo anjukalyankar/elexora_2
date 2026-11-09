@@ -198,97 +198,9 @@ def load_vcb_master():
 
 
 def vcb_spec(record, dis_text, msld_text):
-    """Generate the Q10 VCB BOM description in the approved line-by-line format."""
-    master = load_vcb_master() or {}
-    source = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
-    warnings = []
-
-    # The complete Siemens MLFB is sourced only from the uploaded 3AH3
-    # selection-chart record stored in the existing material master CSV.
-    mlfb = (master.get('model') or '').strip().upper()
-    if not mlfb:
-        warnings.append('Complete Q10 MLFB is missing from the 3AH3 selection-chart master record; verify the chart mapping.')
-
-    def dis_value(section, label):
-        pattern = r'\\b' + re.escape(section) + r'\\s+' + re.escape(label) + r'\\s*:\\s*([^\\n\\r]+)'
-        match = re.search(pattern, dis_text or '', re.I)
-        return clean_value(match.group(1)) if match else ''
-
-    def voltage_value(value):
-        match = re.search(r'(\\d+(?:\\.\\d+)?)\\s*kV', value or '', re.I)
-        return match.group(1) + 'kV' if match else ''
-
-    # Rated system voltage and impulse withstand voltage come from the DIS.
-    system_voltage = voltage_value(dis_value('1.03.00', 'Rated operational voltage'))
-    impulse_voltage = voltage_value(dis_value('1.07.00', 'Rated Impulse voltage'))
-
-    rated_current_match = re.search(r'\\b(\\d+(?:\\.\\d+)?)\\s*A\\b', source, re.I)
-    rated_current = rated_current_match.group(1) if rated_current_match else ''
-
-    short_current_match = re.search(
-        r'\\b(\\d+(?:\\.\\d+)?)\\s*kA\\s*/\\s*(\\d+)\\s*(?:SEC|SECONDS?)\\b',
-        source, re.I
-    )
-    if short_current_match:
-        short_current = short_current_match.group(1) + 'kA'
-        short_duration = short_current_match.group(2) + ' SEC'
-    else:
-        fault_level = dis_value('1.10.00', 'System fault level / Duration')
-        fault_match = re.search(r'\\b(\\d+(?:\\.\\d+)?)\\s*kA\\s+for\\s+(\\d+)\\s*S\\b', fault_level, re.I)
-        short_current = fault_match.group(1) + 'kA' if fault_match else ''
-        short_duration = fault_match.group(2) + ' SEC' if fault_match else ''
-
-    contacts_match = re.search(r'\\b(\\d+)\\s*N\\s*/?\\s*O\\s*\\+\\s*(\\d+)\\s*N\\s*/?\\s*C\\b', source, re.I)
-    contacts = contacts_match.group(1) + 'NO + ' + contacts_match.group(2) + 'NC' if contacts_match else ''
-    plug_match = re.search(r'\\b(\\d+)\\s*[- ]?WAY\\s+PLUG\\b', source, re.I)
-    plug_pins = plug_match.group(1) if plug_match else ''
-
-    motor = re.search(r'\\bMOTOR\\s*:\\s*(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', source, re.I)
-    closing = re.search(r'\\bC\\.?\\s*C\\.?\\s*:\\s*(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', source, re.I)
-    tripping = re.search(r'\\bT\\.?\\s*C\\.?\\s*:\\s*(\\d+(?:\\.\\d+)?)\\s*V\\s*(AC|DC)\\b', source, re.I)
-    motor_supply = motor.group(1) + 'V ' + motor.group(2).upper() if motor else ''
-    closing_supply = closing.group(1) + 'V ' + closing.group(2).upper() if closing else ''
-    tripping_supply = tripping.group(1) + 'V ' + tripping.group(2).upper() if tripping else ''
-
-    required = (
-        (system_voltage, 'DIS rated operational voltage (1.03.00)'),
-        (impulse_voltage, 'DIS rated impulse voltage (1.07.00)'),
-        (rated_current, 'Q10 rated current'),
-        (short_current, 'Q10 short-circuit current'),
-        (short_duration, 'Q10 short-circuit duration'),
-        (contacts, 'Q10 auxiliary contacts'),
-        (plug_pins, 'Q10 control plug pin count'),
-        (motor_supply, 'Q10 spring charging motor supply'),
-        (closing_supply, 'Q10 closing-coil supply'),
-        (tripping_supply, 'Q10 trip-coil supply'),
-        (mlfb, '3AH3 selection-chart MLFB'),
-    )
-    for value, label in required:
-        if not value:
-            warnings.append(label + ' could not be extracted; please verify the source document.')
-
-    manufacturer = (master.get('manufacturer') or 'SIEMENS').strip().upper()
-    capacity = short_current
-    if short_duration:
-        capacity += ' FOR ' + short_duration
-
-    # Keep this wording, order and line structure aligned with the user's
-    # approved BOM example. Do not substitute example electrical ratings.
-    lines = [
-        'CB' + rated_current + 'A',
-        manufacturer + ' MAKE VACCUM CB, TYPE 3AH3, ' + rated_current + 'AMPS',
-        system_voltage + ', IMPULSE ' + impulse_voltage + ', BREAKING CAPACITY : ' + capacity,
-        'SPRING CHARGING MOTOR VOLTAGE : ' + motor_supply,
-        'CLOSING COIL VOLTAGE : ' + closing_supply,
-        'TRIP COIL VOLTAGE : ' + tripping_supply,
-        'ELECT SPRING CHARGE INDICATION LIMIT SW',
-        'WITH ANTI PUMPING FEATURE, AUX SWITCH ' + contacts,
-        'SUITABLE FOR D/O ARRANGEMENT, PLUG & SOCKET ' + plug_pins + ' PIN',
-        'MECH (ON/OFF(IND+PB),(CONT+SPR CHRG IND))',
-        'MLFB NO. : ' + mlfb,
-        'VCB TO BE SUITABLE TO INSERTION IN 8BK80(OD)-800MM PANEL',
-    ]
-    return lines, {'warnings': warnings, 'mlfb': mlfb}
+    """Build Q10 VCB specification and MLFB from the Siemens 3AH3 selection chart."""
+    from .vcb_chart import build_3ah3_q10_spec
+    return build_3ah3_q10_spec(record, dis_text, msld_text)
 
 def mcb_master_match(description, details, designation):
     """Match an MCB to its master description using current, pole count and AC/DC type."""
@@ -6217,7 +6129,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   damping_resistor_validation = None
   if r['master_code']=='VCB':
    spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='CT':
