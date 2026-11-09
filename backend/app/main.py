@@ -207,39 +207,39 @@ def vcb_spec(record, dis_text, msld_text):
     # The chart confirms this exact MLFB. The other MLFB seen in an example is
     # a different catalogue variant and must never be substituted for it.
     chart_mlfb = (master.get('model') or '3AH3-3152-EFFW-AFF2').strip().upper()
-    source_mlfb_match = re.search(r'\\b3AH3-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+\\b', source, re.I)
+    source_mlfb_match = re.search(r'\b3AH3-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+\b', source, re.I)
     source_mlfb = source_mlfb_match.group(0).upper() if source_mlfb_match else ''
     mlfb = source_mlfb or chart_mlfb
     if source_mlfb and source_mlfb != chart_mlfb:
         warnings.append('Q10 MLFB differs from the uploaded 3AH3 selection-chart entry (' + chart_mlfb + '); the two variants were kept distinct and were not treated as interchangeable.')
 
-    system_voltage = first_match(r'\\b(11(?:\\.0)?)\\s*kV\\b', msld, re.I)
+    system_voltage = first_match(r'\b(11(?:\.0)?)\s*kV\b', msld, re.I)
     if not system_voltage:
-        system_voltage = first_match(r'\\b(\\d+(?:\\.\\d+)?)\\s*kV\\b', source, re.I)
+        system_voltage = first_match(r'\b(\d+(?:\.\d+)?)\s*kV\b', source, re.I)
     system_voltage = (system_voltage + 'kV') if system_voltage else ''
 
     rated_voltage = extract_rated_voltage(dis_text)
     dis_field_104 = dis_field(dis_text, '1.04.00')
-    withstand_match = re.search(r'\\b(\\d+(?:\\.\\d+)?)\\s*kV\\b', dis_field_104 or '', re.I)
+    withstand_match = re.search(r'\b(\d+(?:\.\d+)?)\s*kV\b', dis_field_104 or '', re.I)
     if not withstand_match:
-        withstand_match = re.search(r'\\b(75)\\s*kV\\b', dis_search_text(dis_text), re.I)
+        withstand_match = re.search(r'\b(75)\s*kV\b', dis_search_text(dis_text), re.I)
     impulse_withstand = (withstand_match.group(1) + 'kVp') if withstand_match else ''
 
-    rated_current = first_match(r'\\b(?:RATED\\s+CURRENT|CURRENT\\s+RATING|RATED\\s+CONTINUOUS\\s+CURRENT)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*A\\b', source, re.I)
-    if not rated_current and re.search(r'\\b1250\\s*A\\b', source, re.I):
+    rated_current = first_match(r'\b(?:RATED\s+CURRENT|CURRENT\s+RATING|RATED\s+CONTINUOUS\s+CURRENT)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*A\b', source, re.I)
+    if not rated_current and re.search(r'\b1250\s*A\b', source, re.I):
         rated_current = '1250'
     rated_current = (rated_current + 'A') if rated_current else ''
 
-    short_current_match = re.search(r'\\b(31\\.5)\\s*kA\\s*(?:/\\s*|FOR\\s*)?\\s*3\\s*(?:SEC|SECONDS?)\\b', source, re.I)
+    short_current_match = re.search(r'\b(31\.5)\s*kA\s*(?:/\s*|FOR\s*)?\s*3\s*(?:SEC|SECONDS?)\b', source, re.I)
     short_current = (short_current_match.group(1) + 'kA') if short_current_match else ''
     duration = '3 SEC' if short_current_match else ''
 
-    contacts_match = re.search(r'\\b(12)\\s*N\\s*/?\\s*O\\s*\\+\\s*(12)\\s*N\\s*/?\\s*C\\b', source, re.I)
+    contacts_match = re.search(r'\b(12)\s*N\s*/?\s*O\s*\+\s*(12)\s*N\s*/?\s*C\b', source, re.I)
     contacts = (contacts_match.group(1) + 'NO+' + contacts_match.group(2) + 'NC') if contacts_match else ''
-    plug_match = re.search(r'\\b(64)\\s*[- ]?\\s*WAY\\s+PLUG\\b|\\b(64)\\s*[- ]?\\s*WAY\\b', source, re.I)
+    plug_match = re.search(r'\b(64)\s*[- ]?\s*WAY\s+PLUG\b|\b(64)\s*[- ]?\s*WAY\b', source, re.I)
     plug = (next((g for g in plug_match.groups() if g), '') + '-WAY') if plug_match else ''
 
-    aux_voltage = '110V DC' if re.search(r'\\b110\\s*V\\s*DC\\b', source, re.I) else ''
+    aux_voltage = '110V DC' if re.search(r'\b110\s*V\s*DC\b', source, re.I) else ''
     if not system_voltage: warnings.append('Q10 system voltage could not be read confidently from the MSLD.')
     if not rated_voltage: warnings.append('Q10 rated voltage could not be read from DIS field 1.03.00.')
     if not impulse_withstand: warnings.append('Q10 impulse withstand voltage could not be read from DIS field 1.04.00.')
@@ -1078,7 +1078,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_indices=[12]
   elif r['master_code']=='VCB':
    spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='MCB':
