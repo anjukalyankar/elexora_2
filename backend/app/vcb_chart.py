@@ -133,7 +133,7 @@ def build_3ah3_q10_spec(record, dis_text="", msld_text=""):
     # Preserve the established Q10 plain-text description and exact line order.
     lines = [
         "CB" + rated_current + "A",
-        "SIEMENS MAKE VACUUM CB, TYPE 3AH3, " + rated_current + "AMPS",
+        "SIEMENS MAKE VACCUM CB, TYPE 3AH3, " + rated_current + "AMPS",
         system_voltage + ", IMPULSE " + impulse_voltage
             + ", BREAKING CAPACITY : " + capacity,
         "SPRING CHARGING MOTOR VOLTAGE : " + motor_text,
