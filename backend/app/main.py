@@ -6129,7 +6129,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   damping_resistor_validation = None
   if r['master_code']=='VCB':
    spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='CT':
