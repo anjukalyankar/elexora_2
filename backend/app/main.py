@@ -198,75 +198,95 @@ def load_vcb_master():
 
 
 def vcb_spec(record, dis_text, msld_text):
-    """Build the fixed 14-line Q10 VCB BOM description from MSLD, DIS and chart master."""
+    """Generate Q10 VCB description using the Q10 MSLD row and DIS system ratings."""
     master = load_vcb_master() or {}
     source = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
     msld = clean_value(msld_text or '')
     warnings = []
 
-    # The chart confirms this exact MLFB. The other MLFB seen in an example is
-    # a different catalogue variant and must never be substituted for it.
     chart_mlfb = (master.get('model') or '3AH3-3152-EFFW-AFF2').strip().upper()
-    source_mlfb_match = re.search(r'\b3AH3-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+\b', source, re.I)
-    source_mlfb = source_mlfb_match.group(0).upper() if source_mlfb_match else ''
+    found_mlfb = re.search(r'\b3AH3-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+\b', source, re.I)
+    source_mlfb = found_mlfb.group(0).upper() if found_mlfb else ''
     mlfb = source_mlfb or chart_mlfb
     if source_mlfb and source_mlfb != chart_mlfb:
-        warnings.append('Q10 MLFB differs from the uploaded 3AH3 selection-chart entry (' + chart_mlfb + '); the two variants were kept distinct and were not treated as interchangeable.')
+        warnings.append('MLFB ' + source_mlfb + ' differs from the uploaded selection-chart MLFB ' + chart_mlfb + '; no substitution was made.')
 
-    system_voltage = first_match(r'\b(11(?:\.0)?)\s*kV\b', msld, re.I)
-    if not system_voltage:
-        system_voltage = first_match(r'\b(\d+(?:\.\d+)?)\s*kV\b', source, re.I)
-    system_voltage = (system_voltage + 'kV') if system_voltage else ''
+    def dis_value(section, label):
+        pattern = r'\b' + re.escape(section) + r'\s+' + re.escape(label) + r'\s*:\s*([^\n\r]+)'
+        match = re.search(pattern, dis_text or '', re.I)
+        return clean_value(match.group(1)) if match else ''
 
-    rated_voltage = extract_rated_voltage(dis_text)
-    dis_field_104 = dis_field(dis_text, '1.04.00')
-    withstand_match = re.search(r'\b(\d+(?:\.\d+)?)\s*kV\b', dis_field_104 or '', re.I)
-    if not withstand_match:
-        withstand_match = re.search(r'\b(75)\s*kV\b', dis_search_text(dis_text), re.I)
-    impulse_withstand = (withstand_match.group(1) + 'kVp') if withstand_match else ''
+    operational_voltage = dis_value('1.03.00', 'Rated operational voltage')
+    insulation_voltage = dis_value('1.04.00', 'Rated Insulation voltage')
+    frequency_withstand = dis_value('1.06.00', 'Dry Frequency withstand voltage')
+    impulse_voltage = dis_value('1.07.00', 'Rated Impulse voltage')
+    fault_level = dis_value('1.10.00', 'System fault level / Duration')
 
-    rated_current = first_match(r'\b(?:RATED\s+CURRENT|CURRENT\s+RATING|RATED\s+CONTINUOUS\s+CURRENT)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*A\b', source, re.I)
-    if not rated_current and re.search(r'\b1250\s*A\b', source, re.I):
-        rated_current = '1250'
-    rated_current = (rated_current + 'A') if rated_current else ''
+    def voltage_value(value):
+        m = re.search(r'(\d+(?:\.\d+)?)\s*kV', value or '', re.I)
+        return (m.group(1) + 'kV') if m else ''
 
-    short_current_match = re.search(r'\b(31\.5)\s*kA\s*(?:/\s*|FOR\s*)?\s*3\s*(?:SEC|SECONDS?)\b', source, re.I)
-    short_current = (short_current_match.group(1) + 'kA') if short_current_match else ''
-    duration = '3 SEC' if short_current_match else ''
+    system_voltage = voltage_value(operational_voltage)
+    rated_insulation = voltage_value(insulation_voltage)
+    power_frequency = voltage_value(frequency_withstand)
+    impulse = voltage_value(impulse_voltage)
 
-    contacts_match = re.search(r'\b(12)\s*N\s*/?\s*O\s*\+\s*(12)\s*N\s*/?\s*C\b', source, re.I)
-    contacts = (contacts_match.group(1) + 'NO+' + contacts_match.group(2) + 'NC') if contacts_match else ''
-    plug_match = re.search(r'\b(64)\s*[- ]?\s*WAY\s+PLUG\b|\b(64)\s*[- ]?\s*WAY\b', source, re.I)
-    plug = (next((g for g in plug_match.groups() if g), '') + '-WAY') if plug_match else ''
+    rated_current_match = re.search(r'\b(\d+(?:\.\d+)?)\s*A\b', source, re.I)
+    rated_current = rated_current_match.group(1) + 'A' if rated_current_match else ''
+    short_current_match = re.search(r'\b(\d+(?:\.\d+)?)\s*kA\s*/\s*(\d+)\s*(?:SEC|SECONDS?)\b', source, re.I)
+    if short_current_match:
+        short_current = short_current_match.group(1) + 'kA'
+        short_duration = short_current_match.group(2) + 'SEC'
+    else:
+        fault_match = re.search(r'\b(\d+(?:\.\d+)?)\s*kA\s+for\s+(\d+)\s*S\b', fault_level, re.I)
+        short_current = fault_match.group(1) + 'kA' if fault_match else ''
+        short_duration = fault_match.group(2) + 'SEC' if fault_match else ''
 
-    aux_voltage = '110V DC' if re.search(r'\b110\s*V\s*DC\b', source, re.I) else ''
-    if not system_voltage: warnings.append('Q10 system voltage could not be read confidently from the MSLD.')
-    if not rated_voltage: warnings.append('Q10 rated voltage could not be read from DIS field 1.03.00.')
-    if not impulse_withstand: warnings.append('Q10 impulse withstand voltage could not be read from DIS field 1.04.00.')
-    if not rated_current: warnings.append('Q10 rated current could not be read confidently from the MSLD.')
-    if not short_current: warnings.append('Q10 short-time current and 3-second duration could not be read confidently from the MSLD.')
-    if not contacts: warnings.append('Q10 auxiliary contact combination 12NO+12NC could not be confirmed from the MSLD.')
-    if not plug: warnings.append('Q10 64-way control plug could not be confirmed from the MSLD.')
-    if not aux_voltage: warnings.append('Q10 110V DC motor/closing/trip-coil supply could not be confirmed from the MSLD.')
+    contacts_match = re.search(r'\b(\d+)\s*N\s*/?\s*O\s*\+\s*(\d+)\s*N\s*/?\s*C\b', source, re.I)
+    contacts = contacts_match.group(1) + 'NO+' + contacts_match.group(2) + 'NC' if contacts_match else ''
+    plug_match = re.search(r'\b(\d+)\s*[- ]?WAY\s+PLUG\b', source, re.I)
+    plug = plug_match.group(1) + '-WAY' if plug_match else ''
+
+    motor = re.search(r'\bMOTOR\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', source, re.I)
+    closing = re.search(r'\bC\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', source, re.I)
+    tripping = re.search(r'\bT\.?\s*C\.?\s*:\s*(\d+(?:\.\d+)?)\s*V\s*(AC|DC)\b', source, re.I)
+    motor_supply = motor.group(1) + 'V ' + motor.group(2).upper() if motor else ''
+    closing_supply = closing.group(1) + 'V ' + closing.group(2).upper() if closing else ''
+    tripping_supply = tripping.group(1) + 'V ' + tripping.group(2).upper() if tripping else ''
+
+    for value, label in (
+        (system_voltage, 'DIS rated operational voltage (1.03.00)'),
+        (rated_insulation, 'DIS rated insulation voltage (1.04.00)'),
+        (power_frequency, 'DIS dry frequency withstand voltage (1.06.00)'),
+        (impulse, 'DIS rated impulse voltage (1.07.00)'),
+        (rated_current, 'Q10 rated current'),
+        (short_current, 'Q10 short-circuit current'),
+        (contacts, 'Q10 auxiliary contacts'),
+        (plug, 'Q10 control plug'),
+        (motor_supply, 'Q10 motor supply'),
+        (closing_supply, 'Q10 closing-coil supply'),
+        (tripping_supply, 'Q10 trip-coil supply'),
+    ):
+        if not value:
+            warnings.append(label + ' could not be extracted; please verify the source document.')
 
     lines = [
         'Q10',
         (master.get('manufacturer') or 'SIEMENS').upper() + ' MAKE',
         '3AH3 VACUUM CIRCUIT BREAKER',
         'MLFB : ' + mlfb,
-        'SYSTEM VOLTAGE : ' + (system_voltage or ''),
-        'RATED VOLTAGE : ' + (rated_voltage or ''),
-        'LIGHTNING IMPULSE WITHSTAND VOLTAGE : ' + (impulse_withstand or ''),
-        'RATED CURRENT : ' + (rated_current or ''),
-        'SHORT CIRCUIT BREAKING CURRENT : ' + (short_current or ''),
-        'SHORT TIME WITHSTAND CURRENT : ' + ((short_current + ' FOR ' + duration) if short_current and duration else ''),
-        'AUXILIARY CONTACTS : ' + (contacts or ''),
-        'CONTROL PLUG : ' + (plug or ''),
-        'AUXILIARY SUPPLY : ' + ((aux_voltage + ' (SPRING CHARGING MOTOR, CLOSING AND TRIP COILS)') if aux_voltage else ''),
+        'RATED OPERATIONAL VOLTAGE : ' + system_voltage,
+        'RATED INSULATION VOLTAGE : ' + rated_insulation,
+        'POWER FREQUENCY WITHSTAND VOLTAGE : ' + power_frequency,
+        'LIGHTNING IMPULSE WITHSTAND VOLTAGE : ' + impulse,
+        'RATED CURRENT : ' + rated_current,
+        'SHORT CIRCUIT CURRENT : ' + ((short_current + ' FOR ' + short_duration) if short_current and short_duration else short_current),
+        'AUXILIARY CONTACTS : ' + contacts,
+        'CONTROL PLUG : ' + plug,
+        'MOTOR / CLOSING COIL / TRIP COIL : ' + ' / '.join(x for x in (motor_supply, closing_supply, tripping_supply) if x),
         'ANTI-PUMPING : PROVIDED',
     ]
     return lines, {'warnings': warnings, 'mlfb': mlfb}
-
 
 def mcb_master_match(description, details, designation):
     """Match an MCB to its master description using current, pole count and AC/DC type."""
