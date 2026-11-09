@@ -2328,6 +2328,13 @@ def extract_fixed_table(data,filename):
   if page_no!=1:continue
   words=page_words(page); feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465); feeder_quantity=text_in_band(words,440,520,360,380)
   if feeder_type or feeder_designation:feeders.append({'name':feeder_designation or feeder_type,'type':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring,'quantity':feeder_quantity or '1'})
+  # Q10 VCB is above the standard equipment rows. This is the active
+  # extractor; coordinates are from the rotated source MSLD after transform_word.
+  q10_designation=text_in_band(words,275,320,460,480)
+  if re.search(r'\\bQ10\\b',q10_designation,re.I):
+   q10_desc=text_in_band(words,50,275,460,480)
+   q10_details=text_in_band(words,320,615,465,515)
+   records.append({'source_page':page_no,'description':q10_desc,'designation':'Q10','details':q10_details,'master_code':'VCB','quantity':1,'section':'MSLD equipment'})
   left=rows_by_designation(words,275,320,450,790)
   for i,(y,des) in enumerate(left):
    next_y=left[i+1][0] if i+1<len(left) else 790
