@@ -183,6 +183,91 @@ def load_mcb_addon_master():
                 return {key.lower(): (value or '').strip() for key, value in row.items()}
     return None
 
+
+def load_vcb_master():
+    """Load the Q10 VCB catalogue entry from the existing material master CSV."""
+    import csv
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+    if not os.path.exists(path):
+        return None
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh):
+            if (row.get('CATEGORY') or '').strip().upper() == 'VCB' and (row.get('MATERIAL_CODE') or '').strip().upper() == 'VCB-Q10-3AH3-3152':
+                return {key.lower(): (value or '').strip() for key, value in row.items()}
+    return None
+
+
+def vcb_spec(record, dis_text, msld_text):
+    """Build the fixed 14-line Q10 VCB BOM description from MSLD, DIS and chart master."""
+    master = load_vcb_master() or {}
+    source = clean_value(' '.join(str(record.get(k) or '') for k in ('designation', 'description', 'details')))
+    msld = clean_value(msld_text or '')
+    warnings = []
+
+    # The chart confirms this exact MLFB. The other MLFB seen in an example is
+    # a different catalogue variant and must never be substituted for it.
+    chart_mlfb = (master.get('model') or '3AH3-3152-EFFW-AFF2').strip().upper()
+    source_mlfb_match = re.search(r'\\b3AH3-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+\\b', source, re.I)
+    source_mlfb = source_mlfb_match.group(0).upper() if source_mlfb_match else ''
+    mlfb = source_mlfb or chart_mlfb
+    if source_mlfb and source_mlfb != chart_mlfb:
+        warnings.append('Q10 MLFB differs from the uploaded 3AH3 selection-chart entry (' + chart_mlfb + '); the two variants were kept distinct and were not treated as interchangeable.')
+
+    system_voltage = first_match(r'\\b(11(?:\\.0)?)\\s*kV\\b', msld, re.I)
+    if not system_voltage:
+        system_voltage = first_match(r'\\b(\\d+(?:\\.\\d+)?)\\s*kV\\b', source, re.I)
+    system_voltage = (system_voltage + 'kV') if system_voltage else ''
+
+    rated_voltage = extract_rated_voltage(dis_text)
+    dis_field_104 = dis_field(dis_text, '1.04.00')
+    withstand_match = re.search(r'\\b(\\d+(?:\\.\\d+)?)\\s*kV\\b', dis_field_104 or '', re.I)
+    if not withstand_match:
+        withstand_match = re.search(r'\\b(75)\\s*kV\\b', dis_search_text(dis_text), re.I)
+    impulse_withstand = (withstand_match.group(1) + 'kVp') if withstand_match else ''
+
+    rated_current = first_match(r'\\b(?:RATED\\s+CURRENT|CURRENT\\s+RATING|RATED\\s+CONTINUOUS\\s+CURRENT)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*A\\b', source, re.I)
+    if not rated_current and re.search(r'\\b1250\\s*A\\b', source, re.I):
+        rated_current = '1250'
+    rated_current = (rated_current + 'A') if rated_current else ''
+
+    short_current_match = re.search(r'\\b(31\\.5)\\s*kA\\s*(?:/\\s*|FOR\\s*)?\\s*3\\s*(?:SEC|SECONDS?)\\b', source, re.I)
+    short_current = (short_current_match.group(1) + 'kA') if short_current_match else ''
+    duration = '3 SEC' if short_current_match else ''
+
+    contacts_match = re.search(r'\\b(12)\\s*N\\s*/?\\s*O\\s*\\+\\s*(12)\\s*N\\s*/?\\s*C\\b', source, re.I)
+    contacts = (contacts_match.group(1) + 'NO+' + contacts_match.group(2) + 'NC') if contacts_match else ''
+    plug_match = re.search(r'\\b(64)\\s*[- ]?\\s*WAY\\s+PLUG\\b|\\b(64)\\s*[- ]?\\s*WAY\\b', source, re.I)
+    plug = (next((g for g in plug_match.groups() if g), '') + '-WAY') if plug_match else ''
+
+    aux_voltage = '110V DC' if re.search(r'\\b110\\s*V\\s*DC\\b', source, re.I) else ''
+    if not system_voltage: warnings.append('Q10 system voltage could not be read confidently from the MSLD.')
+    if not rated_voltage: warnings.append('Q10 rated voltage could not be read from DIS field 1.03.00.')
+    if not impulse_withstand: warnings.append('Q10 impulse withstand voltage could not be read from DIS field 1.04.00.')
+    if not rated_current: warnings.append('Q10 rated current could not be read confidently from the MSLD.')
+    if not short_current: warnings.append('Q10 short-time current and 3-second duration could not be read confidently from the MSLD.')
+    if not contacts: warnings.append('Q10 auxiliary contact combination 12NO+12NC could not be confirmed from the MSLD.')
+    if not plug: warnings.append('Q10 64-way control plug could not be confirmed from the MSLD.')
+    if not aux_voltage: warnings.append('Q10 110V DC motor/closing/trip-coil supply could not be confirmed from the MSLD.')
+
+    lines = [
+        'Q10',
+        (master.get('manufacturer') or 'SIEMENS').upper() + ' MAKE',
+        '3AH3 VACUUM CIRCUIT BREAKER',
+        'MLFB : ' + mlfb,
+        'SYSTEM VOLTAGE : ' + (system_voltage or ''),
+        'RATED VOLTAGE : ' + (rated_voltage or ''),
+        'LIGHTNING IMPULSE WITHSTAND VOLTAGE : ' + (impulse_withstand or ''),
+        'RATED CURRENT : ' + (rated_current or ''),
+        'SHORT CIRCUIT BREAKING CURRENT : ' + (short_current or ''),
+        'SHORT TIME WITHSTAND CURRENT : ' + ((short_current + ' FOR ' + duration) if short_current and duration else ''),
+        'AUXILIARY CONTACTS : ' + (contacts or ''),
+        'CONTROL PLUG : ' + (plug or ''),
+        'AUXILIARY SUPPLY : ' + ((aux_voltage + ' (SPRING CHARGING MOTOR, CLOSING AND TRIP COILS)') if aux_voltage else ''),
+        'ANTI-PUMPING : PROVIDED',
+    ]
+    return lines, {'warnings': warnings, 'mlfb': mlfb}
+
+
 def mcb_master_match(description, details, designation):
     """Match an MCB to its master description using current, pole count and AC/DC type."""
     text = clean_value(' '.join([description or '', details or '', designation or ''])).upper()
@@ -969,6 +1054,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
  for i,r in enumerate(records,1):
   relay_analysis = None
   meter_validation = None
+  vcb_validation = None
   if r['master_code']=='CT':
    ct_row_text = ' '.join([r.get('designation',''), r.get('description',''), r.get('details','')])
    spec_lines=ct_spec(ct_row_text,dis_text)
@@ -990,6 +1076,11 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=['INSULATION CLASS:- B']
    editable_indices=[12]
+  elif r['master_code']=='VCB':
+   spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
+   spec='\\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='MCB':
    mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
    if mcb_item:
@@ -1069,7 +1160,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec_lines=[clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
-  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
+  rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
@@ -1096,6 +1187,9 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
   if auxiliary_validation:
    auxiliary_label = 'VAJH13 auxiliary trip relay ' + str(row.get('designation', ''))
    warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
+  vcb_validation = row.get('vcb_validation')
+  if vcb_validation:
+   warnings.extend(['Q10 VCB ' + str(row.get('designation', '')) + ': ' + message for message in vcb_validation.get('warnings', [])])
   meter_validation = row.get('meter_validation')
   if meter_validation:
    meter_label = 'EM6400NG meter ' + str(row.get('designation', ''))
@@ -1154,6 +1248,9 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             if auxiliary_validation:
                 auxiliary_label = str(msld_name) + ': VAJH13 auxiliary trip relay ' + str(row.get('designation', ''))
                 warnings.extend([auxiliary_label + ': ' + message for message in auxiliary_validation.get('warnings', [])])
+            vcb_validation = row.get('vcb_validation')
+            if vcb_validation:
+                warnings.extend([str(msld_name) + ': Q10 VCB ' + str(row.get('designation', '')) + ': ' + message for message in vcb_validation.get('warnings', [])])
             meter_validation = row.get('meter_validation')
             if meter_validation:
                 meter_label = str(msld_name) + ': EM6400NG meter ' + str(row.get('designation', ''))
