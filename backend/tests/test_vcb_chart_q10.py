@@ -20,7 +20,7 @@ class TestQ10ThreeAH3ChartMapping(unittest.TestCase):
             lines,
             [
                 "CB1250A",
-                "SIEMENS MAKE VACUUM CB, TYPE 3AH3, 1250AMPS",
+                "SIEMENS MAKE VACCUM CB, TYPE 3AH3, 1250AMPS",
                 "12kV, IMPULSE 75kV, BREAKING CAPACITY : 31.5kA FOR 3 SEC",
                 "SPRING CHARGING MOTOR VOLTAGE : 110V DC",
                 "CLOSING COIL VOLTAGE : 110V DC",
