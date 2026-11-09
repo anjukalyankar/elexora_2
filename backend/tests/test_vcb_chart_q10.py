@@ -38,6 +38,21 @@ class TestQ10ThreeAH3ChartMapping(unittest.TestCase):
             "12": "A", "13": "A", "14": "E", "15": "F", "16": "2",
         })
 
+    def test_q10_coil_supplies_on_msld_continuation_line(self):
+        row = {
+            "designation": "Q10",
+            "description": "11KV, 3AH3, 1250A, 31.5KA/3Sec, 12NO + 12NC, 64 WAY PLUG",
+        }
+        msld_text = (
+            "Q10 11KV, 3AH3, 1250A, 31.5KA/3Sec, 12NO + 12NC, 64 WAY PLUG\n"
+            "MOTOR: 110V DC, C.C: 110V DC, T.C: 110V DC"
+        )
+        lines, validation = build_3ah3_q10_spec(row, msld_text=msld_text)
+        self.assertEqual(validation["mlfb"], "3AH3-1152-AEEA-AEF2")
+        self.assertEqual(lines[3], "SPRING CHARGING MOTOR VOLTAGE : 110V DC")
+        self.assertEqual(lines[4], "CLOSING COIL VOLTAGE : 110V DC")
+        self.assertEqual(lines[5], "TRIP COIL VOLTAGE : 110V DC")
+
     def test_unknown_supply_does_not_guess_mlfb(self):
         row = {
             "designation": "Q10",
