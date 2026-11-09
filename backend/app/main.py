@@ -432,13 +432,14 @@ def extract_fixed_table(data,filename):
   if page_no!=1:continue
   words=page_words(page); feeder_type=text_in_band(words,440,520,410,430); feeder_designation=text_in_band(words,440,520,395,415); feeder_rating=text_in_band(words,440,520,430,450); wiring=text_in_band(words,440,520,450,465); feeder_quantity=text_in_band(words,440,520,360,380)
   if feeder_type or feeder_designation:feeders.append({'name':feeder_designation or feeder_type,'type':feeder_type,'designation':feeder_designation,'rating':feeder_rating,'wiring':wiring,'quantity':feeder_quantity or '1'})
-  # Q10 is the VCB row immediately above the equipment table. It sits
-  # above the normal equipment-row lower boundary, so extract its complete
-  # MSLD description/details explicitly rather than clipping it at y=490.
-  q10_desc=text_in_band(words,50,275,460,490)
-  q10_details=text_in_band(words,320,615,455,515)
-  if q10_desc or q10_details:
-   records.append({'source_page':page_no,'description':q10_desc,'designation':'Q10','details':q10_details,'master_code':master_match(q10_desc,q10_details,'Q10'),'quantity':1,'section':'MSLD equipment'})
+  # Q10 occupies the CB TYPE / RATING / DETAILS / MAKE table row.
+  # Its designation is in the item-number column (x=275..320), while the
+  # two-line VCB specification is in the brief-description column (x=320..615).
+  q10_designation=text_in_band(words,275,320,460,480)
+  if re.search(r'\bQ10\b',q10_designation,re.I):
+   q10_desc=text_in_band(words,50,275,460,480)
+   q10_details=text_in_band(words,320,615,465,495)
+   records.append({'source_page':page_no,'description':q10_desc,'designation':'Q10','details':q10_details,'master_code':'VCB','quantity':1,'section':'MSLD equipment'})
   left=rows_by_designation(words,275,320,450,790)
   for i,(y,des) in enumerate(left):
    if des.upper() == 'Q10':
