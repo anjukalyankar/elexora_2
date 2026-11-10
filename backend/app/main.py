@@ -5672,29 +5672,25 @@ def space_heater_validation(record):
 
 
 def emergency_push_button_contact_config(record):
-    """Read emergency push-button contacts exclusively from the S0 MSLD row.
-
-    Other push buttons (for example S5 rear-cover buttons) must never supply
-    or override the emergency-trip contact arrangement.
-    """
+    """Read contact arrangement only from the S0 emergency push-button row."""
     designation = clean_value(str(record.get('designation') or '')).upper()
     if designation != 'S0':
         return {'label': None, 'type': None, 'confirmed': False}
 
-    # The contact arrangement is in the S0 row's details cell. Do not inspect
-    # description or any document-wide text: adjacent rows can contain their
-    # own NO/NC values and must not influence the emergency push button.
-    compact = re.sub(r'\s+', '', clean_value(str(record.get('details') or '')).upper())
+    # Keep word boundaries from the extracted cell. Removing all whitespace
+    # first can concatenate "1NO+1NC" with following text such as "EM. TRIP",
+    # causing a valid combined contact value to fail its end-boundary check.
+    details_text = clean_value(str(record.get('details') or '')).upper()
     patterns = [
-        (r'(?<![A-Z0-9])1NO(?:\+|&|/|AND)1NC(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
-        (r'(?<![A-Z0-9])1NC(?:\+|&|/|AND)1NO(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NO\\s*(?:\\+|&|/|AND)\\s*1NC', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NC\\s*(?:\\+|&|/|AND)\\s*1NO', '1NO+1NC', '3SB54-00-0A'),
         (r'(?<![A-Z0-9])2NO(?![A-Z0-9])', '2NO', '3SB54-00-0E'),
         (r'(?<![A-Z0-9])2NC(?![A-Z0-9])', '2NC', '3SB54-00-0F'),
-        (r'(?<![A-Z0-9])1NO(?![A-Z0-9])', '1NO', '3SB54-00-0B'),
-        (r'(?<![A-Z0-9])1NC(?![A-Z0-9])', '1NC', '3SB54-00-0C'),
+        (r'(?<![A-Z0-9])1NO(?![A-Z0-9+&/])', '1NO', '3SB54-00-0B'),
+        (r'(?<![A-Z0-9])1NC(?![A-Z0-9+&/])', '1NC', '3SB54-00-0C'),
     ]
     for pattern, label, suffix in patterns:
-        if re.search(pattern, compact):
+        if re.search(pattern, details_text):
             return {'label': label, 'type': suffix, 'confirmed': True}
     return {'label': None, 'type': None, 'confirmed': False}
 
