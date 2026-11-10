@@ -854,9 +854,22 @@ def vajh13_spec(record):
     burden_match = re.search(r"\b(HIGH|LOW)\s*(?:BURDEN)?\b", upper)
     source_burden = next((group for group in burden_match.groups() if group), "") if burden_match else ""
 
-    def norm_voltage(value):
-        value = re.sub(r"\s+", "", value.upper()).replace("VDC", "V DC").replace("VAC", "V AC")
-        return value.replace("/", "/")
+    def voltage_options(value):
+        """Return explicit voltage values and AC/DC type from a single value or family."""
+        normalized = re.sub(r"\s+", " ", (value or "").upper()).strip()
+        match = re.search(r"\b(\d{2,3})(?:\s*/\s*(\d{2,3}))?\s*V\s*(DC|AC)\b", normalized)
+        if not match:
+            return set()
+        voltage_type = match.group(3)
+        options = {(match.group(1), voltage_type)}
+        if match.group(2):
+            options.add((match.group(2), voltage_type))
+        return options
+
+    def voltage_matches_cortex(source_value, cortex_value):
+        source_options = voltage_options(source_value)
+        cortex_options = voltage_options(cortex_value)
+        return bool(source_options and cortex_options and source_options.issubset(cortex_options))
 
     def norm_contacts(value):
         value = re.sub(r"\s+", "", value.upper())
@@ -898,7 +911,7 @@ def vajh13_spec(record):
         else:
             warnings.append("No VAJH13 MLFB matches the MSLD auxiliary voltage/contact combination in the Cortex mapping.")
 
-    if source_voltage and selected and norm_voltage(source_voltage) not in norm_voltage(selected[1]) and norm_voltage(selected[1]) not in norm_voltage(source_voltage):
+    if source_voltage and selected and not voltage_matches_cortex(source_voltage, selected[1]):
         warnings.append("Auxiliary voltage mismatch: MSLD specifies " + source_voltage + "; Cortex model " + selected[0] + " specifies " + selected[1] + ".")
     if source_contacts and selected and norm_contacts(source_contacts) != norm_contacts(selected[2]):
         warnings.append("Contact combination mismatch: MSLD specifies " + source_contacts + "; Cortex model " + selected[0] + " specifies " + selected[2] + ".")
@@ -908,7 +921,9 @@ def vajh13_spec(record):
     # Retain the exact agreed BOM layout. If no unique MLFB can be verified,
     # keep the supplied type code rather than inventing a model number.
     burden = selected[3] if selected else (source_burden or "[NOT CONFIRMED]")
-    aux_voltage = source_voltage or (selected[1] if selected else "[NOT CONFIRMED]")
+    # Cortex is the source of truth for the BOM AUX. VOLTAGE field.
+    # For MSLD 110V DC or 125V DC, retain the full Cortex family label.
+    aux_voltage = selected[1] if selected else (source_voltage or "[NOT CONFIRMED]")
     contacts = selected[2] if selected else (source_contacts or "[NOT CONFIRMED]")
     model_no = selected[0] if selected else (source_model or "[NOT CONFIRMED]")
     protection = first_match(r"\[\s*(86)\s*\]", upper) or ("86" if re.search(r"\b86\b", upper) else "[NOT CONFIRMED]")
