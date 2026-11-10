@@ -6591,9 +6591,17 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   if fuse_designation:
    # pt_spec() places the built-in primary-fuse description at line index 3.
    # Blank designation lines keep F1-F3 visually aligned with that description.
-   designation_lines = [str(row_designation or '')] + [''] * 2 + [fuse_designation]
+   # Show fuse first and PT designation immediately below it, with
+   # matching quantities in the QTY column. Feeder and total quantities stay PT-based.
+   designation_lines = [fuse_designation, str(row_designation or '')]
    row_designation = '\n'.join(designation_lines)
-  rows.append({'sr':row_sr,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':row_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':row_eqpt_qty*feeder_qty_num,'eqpt_qty':row_eqpt_qty,'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
+   row_qty = '\n'.join([
+    str(designation_qty(fuse_designation) or 1),
+    str(r.get('quantity') or 1),
+   ])
+  else:
+   row_qty = ''
+  rows.append({'sr':row_sr,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':row_designation,'qty':row_qty,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':row_eqpt_qty*feeder_qty_num,'eqpt_qty':row_eqpt_qty,'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
   if r['master_code']=='CONTROL_LINK':
    link_sr = row_sr
    link_qty = (r['quantity'] or 1)
