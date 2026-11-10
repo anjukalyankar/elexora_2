@@ -1395,23 +1395,30 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
         code = str(row.get('master_code', '')).strip().upper()
         spec = str(row.get('specification', '')).upper()
         text = ' '.join([code, spec, str(row.get('designation', '')).upper()])
-        # Keep corresponding equipment from all MSLDs together in a stable,
-        # engineering-oriented category order.
+        # Requested BOM order: CT, PT, indication lamps, MCBs/add-ons,
+        # plug sockets, LED lamps, control-link bases, then VCB limit switches.
         if code == 'CT' or re.search(r'\bCURRENT TRANSFORMER\b|\bC\.T\.\b', text):
             rank = 0
         elif code in ('PT', 'VT') or re.search(r'\b(POTENTIAL|VOLTAGE) TRANSFORMER\b|\bP\.T\.\b', text):
             rank = 1
-        elif code in ('LA', 'SA') or 'SURGE ARRESTER' in text:
+        elif code in ('INDICATION_LAMP', 'INDICATOR_LAMP', 'INDICATION LAMP') or 'INDICATION LAMP' in text:
             rank = 2
-        elif code in ('CB', 'VCB', 'BREAKER') or 'CIRCUIT BREAKER' in text:
-            rank = 3
         elif code.startswith('MCB') or re.search(r'\bMCB\b', text):
+            rank = 3
+        elif code in ('PLUG_SOCKET_SWITCH', 'PLUG_SOCKET', 'PS') or 'PLUG SOCKET' in text:
             rank = 4
-        elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in text or re.search(r'\bLED\b', text):
+        elif code in ('LED', 'LAMP', 'E2_LED') or 'LED LAMP' in text or re.search(r'\bLED\b', text):
             rank = 5
-        else:
+        elif code in ('CONTROL_FUSE_BASE', 'CONTROL_LINK'):
             rank = 6
-        return (rank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
+        elif code in ('VCB', 'CB', 'BREAKER') or 'CIRCUIT BREAKER' in text:
+            rank = 7
+        elif code in ('LIMIT_SWITCH', 'S16_AUX_SWITCH') or 'LIMIT SWITCH' in text:
+            rank = 8
+        else:
+            rank = 9
+        subrank = 0 if code == 'CONTROL_LINK' else 1 if code == 'CONTROL_FUSE_BASE' else 0
+        return (rank, subrank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
     rows.sort(key=equipment_order)
     for i, row in enumerate(rows, 1):
         row['sr'] = i
