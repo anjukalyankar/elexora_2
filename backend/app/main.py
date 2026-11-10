@@ -6177,7 +6177,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     'BREAKER TEST/SERVICE POSITION',
     '4NO AT EACH TEST & SERVICE POSITION'
    ]
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='VCB':
