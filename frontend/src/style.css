@@ -120,3 +120,7 @@ button:disabled{opacity:.62;cursor:wait}
 
 /* Restore login hierarchy: ELEXORA brand prominent, action heading secondary. */
 .loginbox .brand.dark{display:block;font-size:32px;line-height:1.15;font-weight:800;letter-spacing:2.5px;margin-bottom:18px;color:#10243e}.loginbox h1{font-size:22px;line-height:1.25;font-weight:700;margin:12px 0 18px}
+
+
+/* Center the DESIGNATION column in the BOM preview only. */
+.bom-table tbody td:nth-child(3){text-align:center;vertical-align:middle}
