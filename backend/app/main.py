@@ -6352,7 +6352,26 @@ def rotary_switch_validation(record, master_item=None):
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
+ # A PT's built-in primary fuses belong to the PT BOM row, not to a
+ # separate equipment row. Carry the F-designation and its range quantity
+ # onto that PT row and suppress only the matching fuse-description row.
+ pt_fuse_by_pt_index = {}
+ consumed_pt_fuse_indices = set()
+ pt_indices = [idx for idx, item in enumerate(records) if item.get('master_code') == 'PT']
+ for pt_index in pt_indices:
+  for fuse_index, fuse_record in enumerate(records):
+   if fuse_index == pt_index:
+    continue
+   fuse_designation = pt_primary_fuse_designation(fuse_record)
+   if fuse_designation:
+    fuse_qty = designation_qty(fuse_designation) or fuse_record.get('quantity') or 1
+    pt_fuse_by_pt_index[pt_index] = (fuse_designation, fuse_qty)
+    consumed_pt_fuse_indices.add(fuse_index)
+    break
  for i,r in enumerate(records,1):
+  record_index = i - 1
+  if record_index in consumed_pt_fuse_indices:
+   continue
   relay_analysis = None
   vcb_validation = None
   auxiliary_relay_validation = None
