@@ -5684,10 +5684,10 @@ def emergency_push_button_contact_config(record):
     # The contact arrangement is in the S0 row's details cell. Do not inspect
     # description or any document-wide text: adjacent rows can contain their
     # own NO/NC values and must not influence the emergency push button.
-    compact = re.sub(r'\\s+', '', clean_value(str(record.get('details') or '')).upper())
+    compact = re.sub(r'\s+', '', clean_value(str(record.get('details') or '')).upper())
     patterns = [
-        (r'(?<![A-Z0-9])1NO(?:\\+|&|/|AND)1NC(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
-        (r'(?<![A-Z0-9])1NC(?:\\+|&|/|AND)1NO(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NO(?:\+|&|/|AND)1NC(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NC(?:\+|&|/|AND)1NO(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
         (r'(?<![A-Z0-9])2NO(?![A-Z0-9])', '2NO', '3SB54-00-0E'),
         (r'(?<![A-Z0-9])2NC(?![A-Z0-9])', '2NC', '3SB54-00-0F'),
         (r'(?<![A-Z0-9])1NO(?![A-Z0-9])', '1NO', '3SB54-00-0B'),
