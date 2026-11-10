@@ -1657,15 +1657,15 @@ def export_combined_pdf(payload):
         qs=row.get('feeder_quantities') or []
         data.append([Paragraph(str(row.get('sr','')),center),Paragraph(spec,cell),Paragraph(str(row.get('designation','') or ''),center),Paragraph('',center)]+[Paragraph(str(qs[i] if i<len(qs) and qs[i] not in (0, '0', None, '') else ''),center) for i in range(n)]+[Paragraph('' if row.get('total') in (0, '0') else str(row.get('total') or ''),center),'',''])
     available=200*mm
-    fixed=[8*mm,66*mm,25*mm,9*mm,12*mm,10*mm,10*mm]
-    # Allocate a little more space to long feeder labels, while keeping the
-    # complete table inside landscape A4. Paragraph cells wrap and expand rows.
-    remaining=max(8*mm, available-sum(fixed))
+    # Keep each typical-feeder column compact. For one feeder it is 25 mm;
+    # with multiple feeders the combined feeder area is capped at 60 mm.
+    feeder_total=min(available-74*mm, max(25*mm, 60*mm if n>2 else 25*mm*n))
     feeder_labels=[len(str(f.get('name',''))) for f in feeders]
     weights=[max(1.0,min(2.0,length/10.0)) for length in feeder_labels]
     weight_sum=sum(weights) or n
-    feeder_widths=[remaining*w/weight_sum for w in weights] if feeders else [remaining]
-    widths=[fixed[0],fixed[1],fixed[2],fixed[3]]+feeder_widths+[fixed[4],fixed[5],fixed[6]]
+    feeder_widths=[feeder_total*w/weight_sum for w in weights] if feeders else [feeder_total]
+    spec_width=available-74*mm-feeder_total
+    widths=[8*mm,spec_width,25*mm,9*mm]+feeder_widths+[12*mm,10*mm,10*mm]
     tbl=Table(data,colWidths=widths,rowHeights=[18,14,20]+[None]*(len(data)-3),repeatRows=3)
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
@@ -7437,11 +7437,14 @@ def export_combined_pdf(payload):
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
     tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
-    story=[Paragraph('-: Equipment List :-',title),Spacer(1,8*mm),tbl]
+    story=[Spacer(1,8*mm),tbl]
     h=payload.get('header',{})
     def footer(canvas, doc_obj):
         canvas.saveState()
         w,hp=doc_obj.pagesize
+        canvas.setFont('Helvetica',6.5)
+        canvas.setFont('Helvetica-Bold',9)
+        canvas.drawCentredString(w/2,hp-9*mm,'-: Equipment List :-')
         canvas.setFont('Helvetica',6.5)
         right_edge=w-19*mm
         line_step=3*mm
@@ -7631,7 +7634,6 @@ def export_pdf(payload):
     h = payload.get('header', {})
     rows = payload.get('rows', [])
     story = [
-        Paragraph('-: Equipment List :-', title_style),
         Spacer(1, 8*mm),
     ]
     data = [
@@ -7669,6 +7671,8 @@ def export_pdf(payload):
         canvas.saveState()
         w, hp = A4
         y = 7*mm
+        canvas.setFont('Helvetica-Bold', 9)
+        canvas.drawCentredString(w/2, hp-9*mm, '-: Equipment List :-')
         canvas.setFont('Helvetica', 6.5)
 
         # Header metadata and footer zones follow the supplied A4 BOM layout.
