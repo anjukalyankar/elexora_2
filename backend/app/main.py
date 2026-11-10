@@ -1411,10 +1411,12 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             rank = 5
         elif code in ('CONTROL_FUSE_BASE', 'CONTROL_LINK'):
             rank = 6
-        elif code in ('LIMIT_SWITCH', 'S16_AUX_SWITCH', 'VCB', 'CB', 'BREAKER') or 'LIMIT SWITCH' in text or 'CIRCUIT BREAKER' in text:
+        elif code in ('VCB', 'CB', 'BREAKER') or 'CIRCUIT BREAKER' in text:
             rank = 7
-        else:
+        elif code in ('LIMIT_SWITCH', 'S16_AUX_SWITCH') or 'LIMIT SWITCH' in text:
             rank = 8
+        else:
+            rank = 9
         subrank = 0 if code == 'CONTROL_LINK' else 1 if code == 'CONTROL_FUSE_BASE' else 0
         return (rank, subrank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
     rows.sort(key=equipment_order)
