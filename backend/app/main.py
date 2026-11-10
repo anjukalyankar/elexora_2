@@ -5682,8 +5682,8 @@ def emergency_push_button_contact_config(record):
     # causing a valid combined contact value to fail its end-boundary check.
     details_text = clean_value(str(record.get('details') or '')).upper()
     patterns = [
-        (r'(?<![A-Z0-9])1NO\\s*(?:\\+|&|/|AND)\\s*1NC', '1NO+1NC', '3SB54-00-0A'),
-        (r'(?<![A-Z0-9])1NC\\s*(?:\\+|&|/|AND)\\s*1NO', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NO\s*(?:\+|&|/|AND)\s*1NC', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NC\s*(?:\+|&|/|AND)\s*1NO', '1NO+1NC', '3SB54-00-0A'),
         (r'(?<![A-Z0-9])2NO(?![A-Z0-9])', '2NO', '3SB54-00-0E'),
         (r'(?<![A-Z0-9])2NC(?![A-Z0-9])', '2NC', '3SB54-00-0F'),
         (r'(?<![A-Z0-9])1NO(?![A-Z0-9+&/])', '1NO', '3SB54-00-0B'),
