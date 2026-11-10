@@ -6343,7 +6343,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     'CONTACT ACTION: SNAP',
     'AUXILIARY CONTACTS: ' + contact_configuration,
    ]
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='EMERGENCY_PUSH_BUTTON':
