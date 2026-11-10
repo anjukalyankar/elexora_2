@@ -434,23 +434,23 @@ def is_test_service_limit_switch(description, details, designation):
     source = clean_value(' '.join([
         str(description or ''), str(details or ''), str(designation or '')
     ])).upper()
-    if not re.search(r'\\bLIMIT\\s+SWITCH\\b', source):
+    if not re.search(r'\bLIMIT\s+SWITCH\b', source):
         return False
-    if not (re.search(r'\\bTEST\\b', source) and re.search(r'\\bSERVICE\\b', source)):
+    if not (re.search(r'\bTEST\b', source) and re.search(r'\bSERVICE\b', source)):
         return False
 
-    # Accept either explicit per-position contact statements or the compact
+    # Accept explicit per-position contact statements or the compact
     # "4NO TEST + 4NO SERVICE" wording found in extracted MSLD rows.
     test_contacts = bool(
-        re.search(r'\\b4\\s*NO\\s*(?:AT\\s*)?TEST\\b', source)
-        or re.search(r'\\bTEST\\s*[:=-]?\\s*4\\s*NO\\b', source)
+        re.search(r'\b4\s*NO\s*(?:AT\s*)?TEST\b', source)
+        or re.search(r'\bTEST\s*[:=-]?\s*4\s*NO\b', source)
     )
     service_contacts = bool(
-        re.search(r'\\b4\\s*NO\\s*(?:AT\\s*)?SERVICE\\b', source)
-        or re.search(r'\\bSERVICE\\s*[:=-]?\\s*4\\s*NO\\b', source)
+        re.search(r'\b4\s*NO\s*(?:AT\s*)?SERVICE\b', source)
+        or re.search(r'\bSERVICE\s*[:=-]?\s*4\s*NO\b', source)
     )
     combined_contacts = bool(re.search(
-        r'\\b4\\s*NO\\s+AT\\s+EACH\\s+TEST\\s*(?:&|AND|/)\\s*SERVICE\\b',
+        r'\b4\s*NO\s+AT\s+EACH\s+TEST\s*(?:&|AND|/)\s*SERVICE\b',
         source
     ))
     return combined_contacts or (test_contacts and service_contacts)
