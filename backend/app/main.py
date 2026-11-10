@@ -1178,7 +1178,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    base_spec = (base_item or {}).get('discription', '')
    base_lines = [part.strip() for part in base_spec.split(',') if part.strip()]
    if base_lines:
-    rows.append({'sr':len(rows)+1,'specification':'\\n'.join(base_lines),'specification_lines':base_lines,'editable_fields':[],'editable_indices':[],'designation':base_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':link_qty*feeder_qty_num,'eqpt_qty':link_qty,'mpd':'','amd':'','master_code':'CONTROL_FUSE_BASE'})
+    rows.append({'sr':len(rows)+1,'specification':'\n'.join(base_lines),'specification_lines':base_lines,'editable_fields':[],'editable_indices':[],'designation':base_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':link_qty*feeder_qty_num,'eqpt_qty':link_qty,'mpd':'','amd':'','master_code':'CONTROL_FUSE_BASE'})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
