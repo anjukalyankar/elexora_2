@@ -11,13 +11,11 @@ from app.main import (
 
 
 class TestEmergencyPushButton(unittest.TestCase):
-    def test_emergency_push_button_uses_mslD_contact_configuration(self):
+    def test_emergency_push_button_uses_nc_compatible_mslD_contact_configuration(self):
         cases = [
             ("1NO+1NC", "1NO+1NC", "3SB54-00-0A"),
             ("1NC + 1NO", "1NO+1NC", "3SB54-00-0A"),
-            ("1NO", "1NO", "3SB54-00-0B"),
             ("1NC", "1NC", "3SB54-00-0C"),
-            ("2NO", "2NO", "3SB54-00-0E"),
             ("2NC", "2NC", "3SB54-00-0F"),
         ]
         for source_contacts, expected_label, expected_type in cases:
@@ -28,8 +26,20 @@ class TestEmergencyPushButton(unittest.TestCase):
                     "details": source_contacts,
                 }
                 config = emergency_push_button_contact_config(record)
+                self.assertTrue(config["compatible"])
                 self.assertEqual(config["label"], expected_label)
                 self.assertEqual(config["type"], expected_type)
+
+    def test_no_only_contact_blocks_are_rejected_for_trip_actuator(self):
+        for source_contacts in ("1NO", "2NO"):
+            with self.subTest(source_contacts=source_contacts):
+                config = emergency_push_button_contact_config({
+                    "designation": "S1",
+                    "description": "EMERGENCY TRIP PUSH BUTTON",
+                    "details": source_contacts,
+                })
+                self.assertFalse(config["compatible"])
+                self.assertTrue(config["confirmed"])
 
     def test_emergency_push_button_builds_fixed_text_and_dynamic_type(self):
         record = {
