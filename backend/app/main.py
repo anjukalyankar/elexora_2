@@ -5765,6 +5765,7 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
+ if '3NW32NNSL' in re.sub(r'[^A-Z0-9]','',s) or 'CONTROL LINK' in s:return 'CONTROL_LINK'
  if (des in ('PS','PS+S28') and 'PLUG SOCKET' in s) or 'PLUG SOCKET WITH BUILT-IN SWITCH' in s or ('PLUG SOCKET' in s and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', s) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', s)):return 'PLUG_SOCKET_SWITCH'
  if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
@@ -6385,6 +6386,12 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     spec_lines = [clean(spec)] if spec else []
    editable_fields=[]
    editable_indices=[]
+  elif r['master_code']=='CONTROL_LINK':
+   master_item = load_control_link_master('CONTROL-LINK-3NW-32NNSL')
+   spec = (master_item or {}).get('discription', '')
+   spec_lines = [part.strip() for part in spec.split(',') if part.strip()]
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='MCB':
    mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
    if mcb_item:
@@ -6478,6 +6485,14 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=[]
    editable_indices=[]
   rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
+  if r['master_code']=='CONTROL_LINK':
+   link_qty = (r['quantity'] or 1)
+   base_designation = str(r.get('designation','')) + 'A'
+   base_item = load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
+   base_spec = (base_item or {}).get('discription', '')
+   base_lines = [part.strip() for part in base_spec.split(',') if part.strip()]
+   if base_lines:
+    rows.append({'sr':len(rows)+1,'specification':'\n'.join(base_lines),'specification_lines':base_lines,'editable_fields':[],'editable_indices':[],'designation':base_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':link_qty*feeder_qty_num,'eqpt_qty':link_qty,'mpd':'','amd':'','master_code':'CONTROL_FUSE_BASE'})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
