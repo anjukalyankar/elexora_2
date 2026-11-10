@@ -5650,12 +5650,34 @@ def designation_qty(des):
   m=re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)(\d+)-(?:[A-Z]+|\d+[A-Z]+)(\d+)',des.upper())
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
+def space_heater_validation(record):
+    """Check E11/E12 space-heater wattage and supply against the approved BOM rating."""
+    source = clean_value(' '.join(
+        str(record.get(key) or '')
+        for key in ('designation', 'description', 'details')
+    )).upper()
+    warnings = []
+    wattage = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(?:WATTS?|W)\b', source)
+    if not wattage:
+        warnings.append('Space-heater wattage is missing or unreadable in the MSLD; expected 200 Watts. Please verify.')
+    elif float(wattage.group(1)) != 200:
+        warnings.append('Space-heater wattage mismatch: MSLD specifies ' + wattage.group(1) + ' Watts; expected 200 Watts. Please verify.')
+
+    voltage = re.search(r'(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*V(?:OLTS?)?\s*(AC|DC)\b', source)
+    if not voltage:
+        warnings.append('Space-heater supply voltage is missing or unreadable in the MSLD; expected 240V AC. Please verify.')
+    elif float(voltage.group(1)) != 240 or voltage.group(2) != 'AC':
+        warnings.append('Space-heater supply mismatch: MSLD specifies ' + voltage.group(1) + 'V ' + voltage.group(2) + '; expected 240V AC. Please verify.')
+    return warnings
+
+
 def master_match(description,details,designation):
  # Active final classifier: designation may contain the equipment type.
  s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
+ if des in ('E11','E12') or 'SPACE HEATER' in s:return 'SPACE_HEATER'
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
  if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
@@ -6180,6 +6202,17 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
+  elif r['master_code']=='SPACE_HEATER':
+   spec_lines=[
+    'APPROVED MAKE',
+    'PANEL SPACE HEATER',
+    'IN PERFORATED ENCLOSURE',
+    'WATTAGE: 200 WATTS',
+    'VOLTAGE: 240V AC'
+   ]
+   spec='\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='VCB':
    spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
    spec='\n'.join(spec_lines)
@@ -6443,6 +6476,10 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
                 validation = rotary_switch_validation(record, load_rotary_switch_master())
                 label = msld_name + ': Switron rotary switch ' + str(record.get('designation') or 'S13')
                 warnings.extend([label + ': ' + message for message in validation['errors']])
+        for record in records:
+            if record.get('master_code') == 'SPACE_HEATER':
+                label = msld_name + ': Space heater ' + str(record.get('designation') or '')
+                warnings.extend(label + ': ' + message for message in space_heater_validation(record))
         warnings.extend(e2_led_wattage_warning(records, msld_name))
         if not feeder_info:
             warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
