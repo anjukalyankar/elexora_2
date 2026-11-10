@@ -6413,8 +6413,9 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_indices=[]
   elif r['master_code']=='CONTROL_LINK':
    master_item = load_control_link_master('CONTROL-LINK-3NW-32NNSL')
-   spec = (master_item or {}).get('discription', '')
-   spec_lines = [part.strip() for part in spec.split(',') if part.strip()]
+   raw_spec = (master_item or {}).get('discription', '')
+   spec_lines = [part.strip() for part in raw_spec.split(',') if part.strip()]
+   spec = '\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='MCB':
