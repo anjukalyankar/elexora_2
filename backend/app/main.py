@@ -7461,17 +7461,16 @@ def export_combined_pdf(payload):
         mid=[f"Description : {payload.get('description','')}",f"W.O. No.: {h.get('wo','')}",f"Drg. No.: {h.get('drawing','')}"]
         right=[f"PRE.BY : {h.get('prep_by','')}",f"Qty.: {payload.get('qty','')}",f"ESD No.: {h.get('esd','')}"]
         left_x=19*mm
-        mid_x=75*mm
+        center_x=w/2
         right_x=150*mm
-        mid_max_x=right_x-5*mm
+        center_max_width=68*mm
         from reportlab.pdfbase.pdfmetrics import stringWidth
         for i,text_value in enumerate(left):
             canvas.drawString(left_x,y+(1.5-i)*line_step,text_value)
         for i,text_value in enumerate(mid):
-            max_width=mid_max_x-mid_x
-            while stringWidth(text_value,'Helvetica',6.5)>max_width and len(text_value)>12:
+            while stringWidth(text_value,'Helvetica',6.5)>center_max_width and len(text_value)>12:
                 text_value=text_value[:-4].rstrip()+'...'
-            canvas.drawString(mid_x,y+(1.5-i)*line_step,text_value)
+            canvas.drawCentredString(center_x,y+(1.5-i)*line_step,text_value)
         for i,text_value in enumerate(right):
             canvas.drawRightString(right_edge,y+(1.5-i)*line_step,text_value)
         canvas.restoreState()
@@ -7609,7 +7608,7 @@ class NumberedCanvas:
         w, hp = A4
         self._canvas.setFont('Helvetica', 6.5)
         self._canvas.drawRightString(
-            w - 19*mm, 7*mm,
+            w - 19*mm, 2.5*mm,
             f'{self._canvas.getPageNumber()} of {total}'
         )
 
@@ -7683,9 +7682,8 @@ def export_pdf(payload):
             canvas.drawRightString(right_edge, hp - 14*mm - i*4*mm, text_value)
 
         left_x = 19*mm
-        mid_x = 75*mm
-        right_x = 150*mm
-        mid_max_x = right_x - 5*mm
+        center_x = w/2
+        center_max_width = 68*mm
         line_step = 3*mm
 
         left=[
@@ -7708,15 +7706,14 @@ def export_pdf(payload):
         for i,(label,value) in enumerate(left):
             canvas.drawString(left_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
 
-        # Keep the center footer inside its own zone so it cannot overlap the right block.
+        # Center the middle group on the page, matching the supplied reference.
+        # A fixed width keeps long values clear of the left and right footer groups.
         from reportlab.pdfbase.pdfmetrics import stringWidth
-        mid_max_x = right_x - 5*mm
         for i,(label,value) in enumerate(mid):
             text_value = (label+' '+str(value)).strip()
-            max_width = mid_max_x - mid_x
-            while stringWidth(text_value, 'Helvetica', 6.5) > max_width and len(text_value) > len(label) + 4:
+            while stringWidth(text_value, 'Helvetica', 6.5) > center_max_width and len(text_value) > len(label) + 4:
                 text_value = text_value[:-2].rstrip() + '...'
-            canvas.drawString(mid_x, y+(1.5-i)*line_step, text_value)
+            canvas.drawCentredString(center_x, y+(1.5-i)*line_step, text_value)
 
         for i,(label,value) in enumerate(right):
             canvas.drawRightString(right_edge, y+(1.5-i)*line_step, (label+' '+str(value)).strip())
