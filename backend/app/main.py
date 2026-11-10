@@ -5767,12 +5767,41 @@ def emergency_push_button_contact_config(record):
     return {'label': None, 'type': None, 'confirmed': False}
 
 
+def limit_switch_contact_configuration(record):
+    """Extract NO/NC auxiliary-contact arrangement from this limit-switch MSLD row."""
+    source = clean_value(' '.join([
+        str(record.get('description') or ''),
+        str(record.get('details') or ''),
+    ])).upper()
+
+    combined = re.search(
+        r'(?<![A-Z0-9])(\d+)\s*NO\s*(?:\+|&|/|AND)\s*(\d+)\s*NC(?![A-Z0-9])',
+        source
+    )
+    if combined:
+        return f'{int(combined.group(1))}NO+{int(combined.group(2))}NC'
+
+    reverse = re.search(
+        r'(?<![A-Z0-9])(\d+)\s*NC\s*(?:\+|&|/|AND)\s*(\d+)\s*NO(?![A-Z0-9])',
+        source
+    )
+    if reverse:
+        return f'{int(reverse.group(2))}NO+{int(reverse.group(1))}NC'
+
+    # Also accept single-type arrangements such as 2NO or 2NC.
+    single = re.search(r'(?<![A-Z0-9])(\d+)\s*(NO|NC)(?![A-Z0-9])', source)
+    if single:
+        return f'{int(single.group(1))}{single.group(2)}'
+    return '[CONTACT CONFIGURATION NOT SPECIFIED]'
+
+
 def master_match(description,details,designation):
  # Active final classifier: designation may contain the equipment type.
  s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
+ if re.search(r'\bLIMIT\s+SWITCH\b', s):return 'LIMIT_SWITCH'
  # F21 is the MCB feeding the space heater; do not classify it as the heater
  # merely because its row text mentions the space-heater circuit/load.
  if des == 'F21':return 'MCB'
@@ -6302,6 +6331,17 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     'AUX SWITCH FOR 3AH CIRCUIT',
     'BREAKER TEST/SERVICE POSITION',
     '4NO AT EACH TEST & SERVICE POSITION'
+   ]
+   spec='\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='LIMIT_SWITCH':
+   contact_configuration = limit_switch_contact_configuration(r)
+   spec_lines=[
+    'ELMEX MAKE LIMIT SWITCH',
+    'IN OPEN EXECUTION WITH PUSH ROD',
+    'CONTACT ACTION: SNAP',
+    'AUXILIARY CONTACTS: ' + contact_configuration,
    ]
    spec='\n'.join(spec_lines)
    editable_fields=[]
