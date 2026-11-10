@@ -1827,7 +1827,7 @@ def export_pdf(payload):
     doc = SimpleDocTemplate(
         out, pagesize=A4,
         rightMargin=8*mm, leftMargin=8*mm,
-        topMargin=12*mm, bottomMargin=28*mm
+        topMargin=27*mm, bottomMargin=28*mm
     )
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle('bomtitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, alignment=TA_CENTER)
@@ -7407,7 +7407,7 @@ def export_combined_book(payload):
 
 def export_combined_pdf(payload):
     out=io.BytesIO()
-    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=12*mm,bottomMargin=20*mm)
+    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=27*mm,bottomMargin=20*mm)
     styles=getSampleStyleSheet()
     title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=6,leading=7,alignment=TA_CENTER)
     cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.2,leading=4.8,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
