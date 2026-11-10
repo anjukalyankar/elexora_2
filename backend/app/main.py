@@ -5672,45 +5672,24 @@ def space_heater_validation(record):
 
 
 def emergency_push_button_contact_config(record):
-    """Resolve a compatible emergency-stop contact block from explicit MSLD NO/NC data."""
+    """Map the MSLD NO/NC contact arrangement to its Siemens 3SB54 contact-block MLFB."""
     source = clean_value(' '.join(
         str(record.get(key) or '')
         for key in ('designation', 'description', 'details')
     )).upper()
     compact = re.sub(r'\s+', '', source)
-
-    # The 3SB50-00-0UC01 push-to-trip actuator is specified for NC contact
-    # blocks only. A mixed 1NO+1NC block is acceptable because it contains NC.
     patterns = [
         (r'(?<!\d)1NO(?:\+|&|/|AND)1NC(?!\w)', '1NO+1NC', '3SB54-00-0A'),
         (r'(?<!\d)1NC(?:\+|&|/|AND)1NO(?!\w)', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<!\d)2NO(?!\w)', '2NO', '3SB54-00-0E'),
         (r'(?<!\d)2NC(?!\w)', '2NC', '3SB54-00-0F'),
+        (r'(?<!\d)1NO(?!\w)', '1NO', '3SB54-00-0B'),
         (r'(?<!\d)1NC(?!\w)', '1NC', '3SB54-00-0C'),
     ]
     for pattern, label, suffix in patterns:
         if re.search(pattern, compact):
-            return {'label': label, 'type': suffix, 'confirmed': True, 'compatible': True}
-
-    no_only = bool(
-        re.search(r'(?<!\d)2NO(?!\w)', compact)
-        or re.search(r'(?<!\d)1NO(?!\w)', compact)
-    )
-    if no_only:
-        return {'label': None, 'type': None, 'confirmed': True, 'compatible': False}
-    return {'label': None, 'type': None, 'confirmed': False, 'compatible': False}
-
-
-def emergency_push_button_validation(record):
-    config = emergency_push_button_contact_config(record)
-    if config.get('compatible'):
-        return []
-    if config.get('confirmed') and not config.get('compatible'):
-        return [
-            'MSLD specifies a NO-only contact block, which is not compatible with Siemens 3SB50-00-0UC01 push-to-trip actuator; use an NC-containing contact configuration and verify.'
-        ]
-    return [
-        'Emergency push-button NO/NC contact configuration is missing or unclear in the MSLD; contact-block type was not guessed. Please verify.'
-    ]
+            return {'label': label, 'type': suffix, 'confirmed': True}
+    return {'label': None, 'type': None, 'confirmed': False}
 
 
 
@@ -6248,8 +6227,8 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_indices=[]
   elif r['master_code']=='EMERGENCY_PUSH_BUTTON':
    contact_config = emergency_push_button_contact_config(r)
-   contact_label = contact_config['label'] or '[CONTACT CONFIGURATION NOT CONFIRMED]'
-   contact_type = contact_config['type'] or '[CONTACT BLOCK TYPE NOT CONFIRMED]'
+   contact_label = contact_config['label'] or '[CONTACT CONFIGURATION NOT SPECIFIED]'
+   contact_type = contact_config['type'] or '[CONTACT TYPE NOT SPECIFIED]'
    spec_lines=[
     '3SB50',
     'SIEMENS MAKE',
@@ -6263,7 +6242,6 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     'WITH PROTECTIVE SHROUDS'
    ]
    spec='\n'.join(spec_lines)
-   emergency_push_button_validation_result = emergency_push_button_validation(r)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='SPACE_HEATER':
@@ -6544,10 +6522,6 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             if record.get('master_code') == 'SPACE_HEATER':
                 label = msld_name + ': Space heater ' + str(record.get('designation') or '')
                 warnings.extend(label + ': ' + message for message in space_heater_validation(record))
-        for record in records:
-            if record.get('master_code') == 'EMERGENCY_PUSH_BUTTON':
-                label = msld_name + ': Emergency push button ' + str(record.get('designation') or '')
-                warnings.extend(label + ': ' + message for message in emergency_push_button_validation(record))
         warnings.extend(e2_led_wattage_warning(records, msld_name))
         if not feeder_info:
             warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
