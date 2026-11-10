@@ -6740,12 +6740,47 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             rank = 4
         elif code in ('LED', 'LAMP') or 'INDICATION LAMP' in text or re.search(r'\bLED\b', text):
             rank = 5
-        else:
+        elif code in ('CONTROL_LINK', 'CONTROL_FUSE_BASE'):
             rank = 6
-        return (rank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
+        else:
+            rank = 7
+
+        designation = str(row.get('designation', '') or '').strip().upper()
+        parent_designation = designation[:-1] if code == 'CONTROL_FUSE_BASE' and designation.endswith('A') else designation
+        pair_order = 1 if code == 'CONTROL_FUSE_BASE' else 0
+        return (
+            rank,
+            parent_designation if code in ('CONTROL_LINK', 'CONTROL_FUSE_BASE') else code,
+            pair_order,
+            re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(),
+            designation,
+        )
+
+    # Rebuild control equipment descriptions from the master after feeder merging
+    # so their specification text is still rendered as separate BOM lines.
+    for row in rows:
+        code = str(row.get('master_code', '')).strip().upper()
+        if code in ('CONTROL_LINK', 'CONTROL_FUSE_BASE'):
+            material_code = 'CONTROL-LINK-3NW-32NNSL' if code == 'CONTROL_LINK' else 'CONTROL-FUSE-BASE-3NW-32NNSF'
+            master_item = load_control_link_master(material_code)
+            master_description = (master_item or {}).get('discription', '')
+            lines = [part.strip() for part in master_description.split(',') if part.strip()]
+            if lines:
+                row['specification_lines'] = lines
+                row['specification'] = '\n'.join(lines)
+
     rows.sort(key=equipment_order)
-    for i, row in enumerate(rows, 1):
-        row['sr'] = i
+    next_sr = 1
+    last_control_link_sr = None
+    for row in rows:
+        code = str(row.get('master_code', '')).strip().upper()
+        if code == 'CONTROL_FUSE_BASE' and last_control_link_sr is not None:
+            row['sr'] = str(last_control_link_sr) + 'A'
+        else:
+            row['sr'] = next_sr
+            if code == 'CONTROL_LINK':
+                last_control_link_sr = next_sr
+            next_sr += 1
         designations = []
         for values in row.pop('designation_by_feeder', []):
             if isinstance(values, str):
