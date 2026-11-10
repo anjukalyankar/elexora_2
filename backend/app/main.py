@@ -1242,6 +1242,9 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             row['_feeder_index'] = idx
             all_rows.append(row)
         warnings.extend([f"{msld_name}: {w}" for w in file_warnings])
+        for record in records:
+            if record.get('master_code') == 'PLUG_SOCKET_SWITCH':
+                warnings.append(f"{msld_name}: Plug socket {record.get('designation') or ''}: 1P MCB is shown in the plug socket row. Please use a switched plug socket with built-in switch instead of a separate 1P MCB.")
         unmatched = [r['designation'] for r in records if r['master_code'] == 'UNMATCHED']
         if unmatched:
             warnings.append(f"{msld_name}: Master Data match not available for: " + ', '.join(unmatched) + ". Source description was preserved; no engineering item was guessed.")
@@ -5715,6 +5718,7 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
+ if 'PLUG SOCKET' in s and re.search(r'\\b(?:1P|1 POLE|SINGLE POLE|SP)\\b', s) and re.search(r'\\bMCB\\b|MINIATURE CIRCUIT BREAKER', s):return 'PLUG_SOCKET_SWITCH'
  if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
@@ -6246,6 +6250,16 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
+  elif r['master_code']=='PLUG_SOCKET_SWITCH':
+   spec_lines=[
+    'ANCHOR MAKE 6/16A,2PIN+E PLUG SOCKET',
+    'SUITABLE FOR 240V AC',
+    'WITH BUILT-IN SWITCH',
+    'VOLTAGE: 240V AC'
+   ]
+   spec='\\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='SPACE_HEATER':
    spec_lines=[
     'APPROVED MAKE',
@@ -6460,6 +6474,9 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
    validation = rotary_switch_validation(record, load_rotary_switch_master())
    label = 'Switron rotary switch ' + str(record.get('designation') or 'S13')
    warnings.extend([label + ': ' + message for message in validation['errors']])
+ for record in records:
+  if record.get('master_code') == 'PLUG_SOCKET_SWITCH':
+   warnings.append('Plug socket ' + str(record.get('designation') or '') + ': 1P MCB is shown in the plug socket row. Please use a switched plug socket with built-in switch instead of a separate 1P MCB.')
  warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
   meter_validation = row.get('meter_validation')
