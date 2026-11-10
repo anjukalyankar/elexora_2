@@ -5672,34 +5672,46 @@ def space_heater_validation(record):
 
 
 def emergency_push_button_contact_config(record):
-    """Resolve the emergency push-button contact block from explicit MSLD NO/NC data."""
+    """Resolve a compatible emergency-stop contact block from explicit MSLD NO/NC data."""
     source = clean_value(' '.join(
         str(record.get(key) or '')
         for key in ('designation', 'description', 'details')
     )).upper()
-    # Normalize common MSLD separators while keeping NO and NC counts distinct.
     compact = re.sub(r'\s+', '', source)
+
+    # The 3SB50-00-0UC01 push-to-trip actuator is specified for NC contact
+    # blocks only. A mixed 1NO+1NC block is acceptable because it contains NC.
     patterns = [
         (r'(?<!\d)1NO(?:\+|&|/|AND)1NC(?!\w)', '1NO+1NC', '3SB54-00-0A'),
         (r'(?<!\d)1NC(?:\+|&|/|AND)1NO(?!\w)', '1NO+1NC', '3SB54-00-0A'),
-        (r'(?<!\d)2NO(?!\w)', '2NO', '3SB54-00-0E'),
         (r'(?<!\d)2NC(?!\w)', '2NC', '3SB54-00-0F'),
-        (r'(?<!\d)1NO(?!\w)', '1NO', '3SB54-00-0B'),
         (r'(?<!\d)1NC(?!\w)', '1NC', '3SB54-00-0C'),
     ]
     for pattern, label, suffix in patterns:
         if re.search(pattern, compact):
-            return {'label': label, 'type': suffix, 'confirmed': True}
-    return {'label': None, 'type': None, 'confirmed': False}
+            return {'label': label, 'type': suffix, 'confirmed': True, 'compatible': True}
+
+    no_only = bool(
+        re.search(r'(?<!\d)2NO(?!\w)', compact)
+        or re.search(r'(?<!\d)1NO(?!\w)', compact)
+    )
+    if no_only:
+        return {'label': None, 'type': None, 'confirmed': True, 'compatible': False}
+    return {'label': None, 'type': None, 'confirmed': False, 'compatible': False}
 
 
 def emergency_push_button_validation(record):
     config = emergency_push_button_contact_config(record)
-    if config['confirmed']:
+    if config.get('compatible'):
         return []
+    if config.get('confirmed') and not config.get('compatible'):
+        return [
+            'MSLD specifies a NO-only contact block, which is not compatible with Siemens 3SB50-00-0UC01 push-to-trip actuator; use an NC-containing contact configuration and verify.'
+        ]
     return [
         'Emergency push-button NO/NC contact configuration is missing or unclear in the MSLD; contact-block type was not guessed. Please verify.'
     ]
+
 
 
 def master_match(description,details,designation):
