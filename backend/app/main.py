@@ -1099,7 +1099,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    base_item = load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
    base_description = (base_item or {}).get('discription', '')
    spec_lines = [part.strip() for part in base_description.split(',') if part.strip()]
-   spec = '\\n'.join(spec_lines)
+   spec = '\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='CONTROL_LINK':
