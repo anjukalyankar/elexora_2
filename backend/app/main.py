@@ -5671,6 +5671,28 @@ def space_heater_validation(record):
     return warnings
 
 
+def emergency_push_button_contact_config(record):
+    """Map the MSLD NO/NC contact arrangement to its Siemens 3SB54 contact-block MLFB."""
+    source = clean_value(' '.join(
+        str(record.get(key) or '')
+        for key in ('designation', 'description', 'details')
+    )).upper()
+    compact = re.sub(r'\s+', '', source)
+    patterns = [
+        (r'(?<!\d)1NO(?:\+|&|/|AND)1NC(?!\w)', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<!\d)1NC(?:\+|&|/|AND)1NO(?!\w)', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<!\d)2NO(?!\w)', '2NO', '3SB54-00-0E'),
+        (r'(?<!\d)2NC(?!\w)', '2NC', '3SB54-00-0F'),
+        (r'(?<!\d)1NO(?!\w)', '1NO', '3SB54-00-0B'),
+        (r'(?<!\d)1NC(?!\w)', '1NC', '3SB54-00-0C'),
+    ]
+    for pattern, label, suffix in patterns:
+        if re.search(pattern, compact):
+            return {'label': label, 'type': suffix, 'confirmed': True}
+    return {'label': None, 'type': None, 'confirmed': False}
+
+
+
 def master_match(description,details,designation):
  # Active final classifier: designation may contain the equipment type.
  s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
@@ -5678,6 +5700,7 @@ def master_match(description,details,designation):
  if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
  if des in ('E11','E12') or 'SPACE HEATER' in s:return 'SPACE_HEATER'
+ if ('EMERGENCY' in s and 'PUSH BUTTON' in s) or 'EMERGENCY TRIP PB' in s:return 'EMERGENCY_PUSH_BUTTON'
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
  if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
@@ -6198,6 +6221,25 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     'AUX SWITCH FOR 3AH CIRCUIT',
     'BREAKER TEST/SERVICE POSITION',
     '4NO AT EACH TEST & SERVICE POSITION'
+   ]
+   spec='\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='EMERGENCY_PUSH_BUTTON':
+   contact_config = emergency_push_button_contact_config(r)
+   contact_label = contact_config['label'] or '[CONTACT CONFIGURATION NOT SPECIFIED]'
+   contact_type = contact_config['type'] or '[CONTACT TYPE NOT SPECIFIED]'
+   spec_lines=[
+    '3SB50',
+    'SIEMENS MAKE',
+    'EMERGENCY TRIP PUSH BUTTON',
+    'SICONT PUSH BUTTON ACTUATOR',
+    'MUSHROOM WITH P.F.R',
+    'WITH HOLDER FOR REAR CONNECTION',
+    'COLOUR : RED',
+    'WITH ' + contact_label + ' CONTACT BLOCK',
+    'TYPE :3SB50-00-0UC01+' + contact_type,
+    'WITH PROTECTIVE SHROUDS'
    ]
    spec='\n'.join(spec_lines)
    editable_fields=[]
