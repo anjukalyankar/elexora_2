@@ -6335,9 +6335,25 @@ def rotary_switch_validation(record, master_item=None):
 
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
- # Keep the PT and its built-in primary-fuse description as separate BOM rows.
- # Each row keeps its own designation and equipment quantity.
+ # A PT with an in-built primary fuse is one BOM row. Put the fuse
+ # designation on the matching description line in the designation cell;
+ # retain the PT row's existing equipment quantity and total quantity.
+ pt_fuse_by_pt_index = {}
+ consumed_pt_fuse_indices = set()
+ pt_indices = [idx for idx, item in enumerate(records) if item.get('master_code') == 'PT']
+ for pt_index in pt_indices:
+  for fuse_index, fuse_record in enumerate(records):
+   if fuse_index == pt_index or fuse_index in consumed_pt_fuse_indices:
+    continue
+   fuse_designation = pt_primary_fuse_designation(fuse_record)
+   if fuse_designation:
+    pt_fuse_by_pt_index[pt_index] = fuse_designation
+    consumed_pt_fuse_indices.add(fuse_index)
+    break
  for i,r in enumerate(records,1):
+  record_index = i - 1
+  if record_index in consumed_pt_fuse_indices:
+   continue
   relay_analysis = None
   vcb_validation = None
   auxiliary_relay_validation = None
@@ -6571,10 +6587,12 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   row_sr = len(rows)+1
   row_designation = r['designation']
   row_eqpt_qty = (r['quantity'] or 1)
-  fuse_designation = pt_primary_fuse_designation(r)
+  fuse_designation = pt_fuse_by_pt_index.get(record_index)
   if fuse_designation:
-   row_designation = fuse_designation
-   row_eqpt_qty = designation_qty(fuse_designation) or row_eqpt_qty
+   # pt_spec() places the built-in primary-fuse description at line index 3.
+   # Blank designation lines keep F1-F3 visually aligned with that description.
+   designation_lines = [str(row_designation or '')] + [''] * 2 + [fuse_designation]
+   row_designation = '\n'.join(designation_lines)
   rows.append({'sr':row_sr,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':row_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':row_eqpt_qty*feeder_qty_num,'eqpt_qty':row_eqpt_qty,'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
   if r['master_code']=='CONTROL_LINK':
    link_sr = row_sr
