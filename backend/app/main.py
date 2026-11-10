@@ -1906,7 +1906,7 @@ def export_pdf(payload):
 
         # Keep the center footer inside its own zone so it cannot overlap the right block.
         from reportlab.pdfbase.pdfmetrics import stringWidth
-        mid_max_x = right_x - 5*mm
+        mid_max_x = right_edge - 5*mm
         for i,(label,value) in enumerate(mid):
             text_value = (label+' '+str(value)).strip()
             max_width = mid_max_x - mid_x
