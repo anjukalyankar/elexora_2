@@ -1042,9 +1042,42 @@ def em6400ng_spec(record, records):
         missing.append('PT ratio is missing or unreadable in the meter row and corresponding PT row')
     return spec_lines, missing
 
+def pt_primary_fuse_designation(record):
+    """Return the F-designation range for a PT's built-in primary-fuse row."""
+    designation = clean_value(str(record.get('designation') or '')).upper().replace(' ', '')
+    source = clean_value(' '.join([
+        str(record.get('description') or ''),
+        str(record.get('details') or ''),
+    ])).upper()
+    if not re.fullmatch(r'F\d+-F\d+', designation):
+        return None
+    if not re.search(r'PRIMARY\s+FUSE|IN[- ]?BUILT', source):
+        return None
+    return designation
+
+
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
+ # A PT's built-in primary fuses belong to the PT BOM row, not to a
+ # separate equipment row. Carry the F-designation and its range quantity
+ # onto that PT row and suppress only the matching fuse-description row.
+ pt_fuse_by_pt_index = {}
+ consumed_pt_fuse_indices = set()
+ pt_indices = [idx for idx, item in enumerate(records) if item.get('master_code') == 'PT']
+ for pt_index in pt_indices:
+  for fuse_index, fuse_record in enumerate(records):
+   if fuse_index == pt_index:
+    continue
+   fuse_designation = pt_primary_fuse_designation(fuse_record)
+   if fuse_designation:
+    fuse_qty = designation_qty(fuse_designation) or fuse_record.get('quantity') or 1
+    pt_fuse_by_pt_index[pt_index] = (fuse_designation, fuse_qty)
+    consumed_pt_fuse_indices.add(fuse_index)
+    break
  for i,r in enumerate(records,1):
+  record_index = i - 1
+  if record_index in consumed_pt_fuse_indices:
+   continue
   # Normalize Control Link rows from the material/type text before choosing
   # the BOM description branch. Some MSLD extractions retain the raw
   # designation/type text and bypass the master classifier.
@@ -6551,7 +6584,11 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=[]
    editable_indices=[]
   row_sr = len(rows)+1
-  rows.append({'sr':row_sr,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
+  row_designation = r['designation']
+  row_eqpt_qty = (r['quantity'] or 1)
+  if r['master_code'] == 'PT' and record_index in pt_fuse_by_pt_index:
+   row_designation, row_eqpt_qty = pt_fuse_by_pt_index[record_index]
+  rows.append({'sr':row_sr,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':row_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':row_eqpt_qty*feeder_qty_num,'eqpt_qty':row_eqpt_qty,'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
   if r['master_code']=='CONTROL_LINK':
    link_sr = row_sr
    link_qty = (r['quantity'] or 1)
