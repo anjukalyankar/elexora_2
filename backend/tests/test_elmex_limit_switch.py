@@ -55,7 +55,7 @@ class TestElmexLimitSwitch(unittest.TestCase):
             "AUXILIARY CONTACTS: 1NO+1NC",
         ]
         self.assertEqual(rows[0]["specification_lines"], expected)
-        self.assertEqual(rows[0]["specification"], "\\n".join(expected))
+        self.assertEqual(rows[0]["specification"], "\n".join(expected))
 
 
 if __name__ == "__main__":
