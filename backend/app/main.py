@@ -4056,7 +4056,7 @@ def extract_fixed_table(data,filename):
    right=rows_by_designation(words,840,880,ymin,ymax)
    for i,(y,des) in enumerate(right):
     next_y=right[i+1][0] if i+1<len(right) else ymax; lo,hi=max(ymin,y-8),min(ymax,(y+next_y)/2); desc=text_in_band(words,630,835,lo,hi); details=text_in_band(words,890,1175,lo,hi)
-    if desc or details:records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
+    if desc or details or des.upper() in ('PS','PS+S28'):records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des) or 1,'section':'MSLD equipment'})
  return feeders,records,warnings
 
 def extract_header_from_page(data,filename):
@@ -5635,7 +5635,7 @@ def rows_by_designation(words,xmin,xmax,ymin,ymax):
   if xmin<=w['x']<=xmax and ymin<=w['y']<=ymax:
    t=clean(w['text'])
    if t.upper() in {'DESIG.','QTY.','NO.'}: continue
-   if re.fullmatch(r'[A-Z0-9]+(?:[-/,][A-Z0-9]+)*',t,re.I) and re.search(r'\d',t): vals.append((w['y'],t))
+   if re.fullmatch(r'[A-Z0-9]+(?:[-/,+][A-Z0-9]+)*',t,re.I) and (re.search(r'\d',t) or re.fullmatch(r'PS(?:\+S28)?',t,re.I)): vals.append((w['y'],t))
  vals.sort(); out=[]
  for y,t in vals:
   if not out or abs(y-out[-1][0])>5: out.append([y,t])
@@ -5718,7 +5718,7 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
- if 'PLUG SOCKET WITH BUILT-IN SWITCH' in s or ('PLUG SOCKET' in s and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', s) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', s)):return 'PLUG_SOCKET_SWITCH'
+ if (des in ('PS','PS+S28') and 'PLUG SOCKET' in s) or 'PLUG SOCKET WITH BUILT-IN SWITCH' in s or ('PLUG SOCKET' in s and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', s) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', s)):return 'PLUG_SOCKET_SWITCH'
  if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
@@ -5748,7 +5748,7 @@ def extract_fixed_table(data,filename):
    right=rows_by_designation(words,840,880,ymin,ymax)
    for i,(y,des) in enumerate(right):
     next_y=right[i+1][0] if i+1<len(right) else ymax; lo,hi=max(ymin,y-8),min(ymax,(y+next_y)/2); desc=text_in_band(words,630,835,lo,hi); details=text_in_band(words,890,1175,lo,hi)
-    if desc or details:records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des),'section':'MSLD equipment'})
+    if desc or details or des.upper() in ('PS','PS+S28'):records.append({'source_page':page_no,'description':desc,'designation':des,'details':details,'master_code':master_match(desc,details,des),'quantity':designation_qty(des) or 1,'section':'MSLD equipment'})
  return feeders,records,warnings
 
 def extract_header_from_page(data,filename):
