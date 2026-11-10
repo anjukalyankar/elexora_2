@@ -1415,7 +1415,8 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             rank = 7
         else:
             rank = 8
-        return (rank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
+        subrank = 0 if code == 'CONTROL_LINK' else 1 if code == 'CONTROL_FUSE_BASE' else 0
+        return (rank, subrank, code, re.sub(r'\s+', ' ', str(row.get('specification', ''))).casefold(), str(row.get('designation', '')).casefold())
     rows.sort(key=equipment_order)
     for i, row in enumerate(rows, 1):
         row['sr'] = i
