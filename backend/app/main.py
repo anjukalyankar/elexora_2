@@ -5775,21 +5775,21 @@ def limit_switch_contact_configuration(record):
     ])).upper()
 
     combined = re.search(
-        r'(?<![A-Z0-9])(\\d+)\\s*NO\\s*(?:\\+|&|/|AND)\\s*(\\d+)\\s*NC(?![A-Z0-9])',
+        r'(?<![A-Z0-9])(\d+)\s*NO\s*(?:\+|&|/|AND)\s*(\d+)\s*NC(?![A-Z0-9])',
         source
     )
     if combined:
         return f'{int(combined.group(1))}NO+{int(combined.group(2))}NC'
 
     reverse = re.search(
-        r'(?<![A-Z0-9])(\\d+)\\s*NC\\s*(?:\\+|&|/|AND)\\s*(\\d+)\\s*NO(?![A-Z0-9])',
+        r'(?<![A-Z0-9])(\d+)\s*NC\s*(?:\+|&|/|AND)\s*(\d+)\s*NO(?![A-Z0-9])',
         source
     )
     if reverse:
         return f'{int(reverse.group(2))}NO+{int(reverse.group(1))}NC'
 
     # Also accept single-type arrangements such as 2NO or 2NC.
-    single = re.search(r'(?<![A-Z0-9])(\\d+)\\s*(NO|NC)(?![A-Z0-9])', source)
+    single = re.search(r'(?<![A-Z0-9])(\d+)\s*(NO|NC)(?![A-Z0-9])', source)
     if single:
         return f'{int(single.group(1))}{single.group(2)}'
     return '[CONTACT CONFIGURATION NOT SPECIFIED]'
@@ -5801,7 +5801,7 @@ def master_match(description,details,designation):
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
- if re.search(r'\\bLIMIT\\s+SWITCH\\b', s):return 'LIMIT_SWITCH'
+ if re.search(r'\bLIMIT\s+SWITCH\b', s):return 'LIMIT_SWITCH'
  # F21 is the MCB feeding the space heater; do not classify it as the heater
  # merely because its row text mentions the space-heater circuit/load.
  if des == 'F21':return 'MCB'
