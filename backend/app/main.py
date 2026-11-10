@@ -5672,25 +5672,31 @@ def space_heater_validation(record):
 
 
 def emergency_push_button_contact_config(record):
-    """Map the MSLD NO/NC contact arrangement to its Siemens 3SB54 contact-block MLFB."""
-    source = clean_value(' '.join(
-        str(record.get(key) or '')
-        for key in ('designation', 'description', 'details')
-    )).upper()
-    compact = re.sub(r'\s+', '', source)
+    """Read emergency push-button contacts exclusively from the S0 MSLD row.
+
+    Other push buttons (for example S5 rear-cover buttons) must never supply
+    or override the emergency-trip contact arrangement.
+    """
+    designation = clean_value(str(record.get('designation') or '')).upper()
+    if designation != 'S0':
+        return {'label': None, 'type': None, 'confirmed': False}
+
+    # The contact arrangement is in the S0 row's details cell. Do not inspect
+    # description or any document-wide text: adjacent rows can contain their
+    # own NO/NC values and must not influence the emergency push button.
+    compact = re.sub(r'\\s+', '', clean_value(str(record.get('details') or '')).upper())
     patterns = [
-        (r'(?<!\d)1NO(?:\+|&|/|AND)1NC(?!\w)', '1NO+1NC', '3SB54-00-0A'),
-        (r'(?<!\d)1NC(?:\+|&|/|AND)1NO(?!\w)', '1NO+1NC', '3SB54-00-0A'),
-        (r'(?<!\d)2NO(?!\w)', '2NO', '3SB54-00-0E'),
-        (r'(?<!\d)2NC(?!\w)', '2NC', '3SB54-00-0F'),
-        (r'(?<!\d)1NO(?!\w)', '1NO', '3SB54-00-0B'),
-        (r'(?<!\d)1NC(?!\w)', '1NC', '3SB54-00-0C'),
+        (r'(?<![A-Z0-9])1NO(?:\\+|&|/|AND)1NC(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])1NC(?:\\+|&|/|AND)1NO(?![A-Z0-9])', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<![A-Z0-9])2NO(?![A-Z0-9])', '2NO', '3SB54-00-0E'),
+        (r'(?<![A-Z0-9])2NC(?![A-Z0-9])', '2NC', '3SB54-00-0F'),
+        (r'(?<![A-Z0-9])1NO(?![A-Z0-9])', '1NO', '3SB54-00-0B'),
+        (r'(?<![A-Z0-9])1NC(?![A-Z0-9])', '1NC', '3SB54-00-0C'),
     ]
     for pattern, label, suffix in patterns:
         if re.search(pattern, compact):
             return {'label': label, 'type': suffix, 'confirmed': True}
     return {'label': None, 'type': None, 'confirmed': False}
-
 
 
 def master_match(description,details,designation):
