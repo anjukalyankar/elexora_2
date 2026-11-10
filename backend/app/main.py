@@ -184,6 +184,20 @@ def load_mcb_addon_master():
     return None
 
 
+
+def load_control_link_master(material_code):
+    """Load a control-link or control-fuse-base description from the material master."""
+    import csv
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+    if not os.path.exists(path):
+        return None
+    target = str(material_code or '').strip().upper()
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh):
+            if (row.get('MATERIAL_CODE') or '').strip().upper() == target:
+                return {key.lower(): (value or '').strip() for key, value in row.items()}
+    return None
+
 def load_vcb_master():
     """Load the Q10 VCB catalogue entry from the existing material master CSV."""
     import csv
@@ -471,6 +485,8 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
+ if '3NW32NNSF' in re.sub(r'[^A-Z0-9]','',s) or 'CONTROL FUSE BASE' in s:return 'CONTROL_FUSE_BASE'
+ if '3NW32NNSL' in re.sub(r'[^A-Z0-9]','',s) or 'CONTROL LINK' in s:return 'CONTROL_LINK'
  if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
@@ -1070,6 +1086,13 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
+  elif r['master_code'] in ('CONTROL_LINK', 'CONTROL_FUSE_BASE'):
+   material_code = 'CONTROL-LINK-3NW-32NNSL' if r['master_code'] == 'CONTROL_LINK' else 'CONTROL-FUSE-BASE-3NW-32NNSF'
+   master_item = load_control_link_master(material_code)
+   spec = (master_item or {}).get('discription', '')
+   spec_lines = [part.strip() for part in spec.split(',') if part.strip()]
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='MCB':
    mcb_item = mcb_master_match(r.get('description',''), r.get('details',''), r.get('designation',''))
    if mcb_item:
@@ -1150,6 +1173,20 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_fields=[]
    editable_indices=[]
   rows.append({'sr':len(rows)+1,'specification':spec,'specification_lines':spec_lines,'editable_fields':editable_fields,'editable_indices':editable_indices,'designation':r['designation'],'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':(r['quantity'] or 1)*feeder_qty_num,'eqpt_qty':(r['quantity'] or 1),'mpd':'','amd':'','master_code':r['master_code'],'relay_validation':relay_analysis.get('validation') if relay_analysis else None,'vcb_validation':vcb_validation,'meter_validation':meter_validation if r['master_code']=='EM6400NG' else None,'auxiliary_relay_validation':auxiliary_relay_validation if r['master_code']=='VAJH13' else None,'damping_resistor_validation':damping_resistor_validation if r['master_code']=='PT_DAMPING_RESISTOR' else None})
+  if r['master_code']=='CONTROL_LINK':
+   link_qty = (r['quantity'] or 1)
+   base_designation = str(r.get('designation','')) + 'A'
+   explicit_base = any(
+    item.get('master_code') == 'CONTROL_FUSE_BASE'
+    and str(item.get('designation','')).strip().upper() == base_designation.strip().upper()
+    for item in records
+   )
+   if not explicit_base:
+    base_item = load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
+    base_spec = (base_item or {}).get('discription', '')
+    base_lines = [part.strip() for part in base_spec.split(',') if part.strip()]
+    if base_lines:
+     rows.append({'sr':len(rows)+1,'specification':'\\n'.join(base_lines),'specification_lines':base_lines,'editable_fields':[],'editable_indices':[],'designation':base_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':link_qty*feeder_qty_num,'eqpt_qty':link_qty,'mpd':'','amd':'','master_code':'CONTROL_FUSE_BASE'})
   if r['master_code']=='MCB':
    mcb_source_text = clean_value(' '.join([r.get('description',''), r.get('details','')])).upper()
    has_aux_1no_1nc = bool(re.search(r'\b1\s*NO\s*\+\s*1\s*NC\b', mcb_source_text) and re.search(r'\bAUX(?:ILIARY)?\b|\bCONTACTS?\b', mcb_source_text))
