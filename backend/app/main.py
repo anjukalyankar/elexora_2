@@ -6104,8 +6104,10 @@ def tnc_switch_validation(record):
         str(record.get('details') or '')
     ])).upper()
     errors = []
-    close_match = re.search(r'\b4\s*NO\s*(?:IN|AT|FOR)?\s*CLOSE\b|\bCLOSE\s*[:=-]?\s*4\s*NO\b', source)
-    trip_match = re.search(r'\b4\s*NO\s*(?:IN|AT|FOR)?\s*TRIP\b|\bTRIP\s*[:=-]?\s*4\s*NO\b', source)
+    # MSLDs may express the same S14 contact count as either '4 NO' or '4 CONTACTS'.
+    # Accept both wordings for CLOSE and TRIP while retaining the existing count check.
+    close_match = re.search(r'\b4\s*(?:NO|CONTACTS?)\s*(?:IN|AT|FOR)?\s*CLOSE\b|\bCLOSE\s*[:=-]?\s*4\s*(?:NO|CONTACTS?)\b', source)
+    trip_match = re.search(r'\b4\s*(?:NO|CONTACTS?)\s*(?:IN|AT|FOR)?\s*TRIP\b|\bTRIP\s*[:=-]?\s*4\s*(?:NO|CONTACTS?)\b', source)
     if not close_match:
         errors.append('Contact disposition mismatch: expected 4 NO in CLOSE.')
     if not trip_match:
