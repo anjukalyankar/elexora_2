@@ -7462,9 +7462,15 @@ def export_combined_pdf(payload):
         right=[f"PRE.BY : {h.get('prep_by','')}",f"Qty.: {payload.get('qty','')}",f"ESD No.: {h.get('esd','')}"]
         left_x=19*mm
         mid_x=75*mm
+        right_x=150*mm
+        mid_max_x=right_x-5*mm
+        from reportlab.pdfbase.pdfmetrics import stringWidth
         for i,text_value in enumerate(left):
             canvas.drawString(left_x,y+(1.5-i)*line_step,text_value)
         for i,text_value in enumerate(mid):
+            max_width=mid_max_x-mid_x
+            while stringWidth(text_value,'Helvetica',6.5)>max_width and len(text_value)>12:
+                text_value=text_value[:-4].rstrip()+'...'
             canvas.drawString(mid_x,y+(1.5-i)*line_step,text_value)
         for i,text_value in enumerate(right):
             canvas.drawRightString(right_edge,y+(1.5-i)*line_step,text_value)
@@ -7678,6 +7684,8 @@ def export_pdf(payload):
 
         left_x = 19*mm
         mid_x = 75*mm
+        right_x = 150*mm
+        mid_max_x = right_x - 5*mm
         line_step = 3*mm
 
         left=[
