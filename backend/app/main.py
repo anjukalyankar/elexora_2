@@ -7407,7 +7407,7 @@ def export_combined_book(payload):
 
 def export_combined_pdf(payload):
     out=io.BytesIO()
-    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=6*mm,bottomMargin=20*mm)
+    doc=SimpleDocTemplate(out,pagesize=A4,rightMargin=5*mm,leftMargin=5*mm,topMargin=12*mm,bottomMargin=20*mm)
     styles=getSampleStyleSheet()
     title=ParagraphStyle('combinedtitle',parent=styles['Normal'],fontName='Helvetica-Bold',fontSize=6,leading=7,alignment=TA_CENTER)
     cell=ParagraphStyle('combinedcell',parent=styles['Normal'],fontName='Helvetica',fontSize=4.2,leading=4.8,spaceAfter=0,spaceBefore=0,wordWrap='CJK')
@@ -7437,16 +7437,37 @@ def export_combined_pdf(payload):
     spans=[('SPAN',(0,0),(0,2)),('SPAN',(1,0),(1,2)),('SPAN',(2,0),(2,2)),('SPAN',(3,1),(3,2)),('SPAN',(4,0),(3+n,0)),('SPAN',(4+n,0),(4+n,2)),('SPAN',(5+n,0),(5+n,2)),('SPAN',(6+n,0),(6+n,2))]
     # A compact first-row group label and feeder-specific second/third header rows.
     tbl.setStyle(TableStyle(spans+[('GRID',(0,0),(-1,-1),0.45,colors.black),('BACKGROUND',(0,0),(-1,2),colors.HexColor('#d9e7f0')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(0,0),(-1,2),'CENTER'),('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
-    story=[Paragraph('-: Equipment List :-',title),Spacer(1,3*mm),tbl]
+    story=[Paragraph('-: Equipment List :-',title),Spacer(1,8*mm),tbl]
     h=payload.get('header',{})
     def footer(canvas, doc_obj):
         canvas.saveState()
         w,hp=doc_obj.pagesize
-        y=8*mm
         canvas.setFont('Helvetica',6.5)
-        canvas.drawString(6*mm,y+7*mm,f"Client: {h.get('client','')}  Sales Ref: {h.get('sales_ref','')}")
-        canvas.drawString(6*mm,y+4*mm,f"Description: {payload.get('description','')}  WO: {h.get('wo','')}  Drawing: {h.get('drawing','')}")
-        canvas.drawString(6*mm,y+1*mm,f"Prepared by: {h.get('prep_by','')}  Qty: {payload.get('qty','')}  ESD: {h.get('esd','')}")
+        right_edge=w-19*mm
+        line_step=3*mm
+
+        # Header metadata follows the reference BOM's top-right alignment.
+        header_lines=[
+            f"Doc.No.: {payload.get('document_no','SI EA/CS/FR/EG/015')}",
+            f"Rev.No.: {payload.get('revision','1.0')}, Eff.Dt: {payload.get('effective_date','17/07/2026')}",
+            f"Created By: {payload.get('created_by','EA CS ENGG')}"
+        ]
+        for i,text_value in enumerate(header_lines):
+            canvas.drawRightString(right_edge,hp-14*mm-i*4*mm,text_value)
+
+        # Footer values occupy the same left / center / right zones as the reference.
+        y=7*mm
+        left=[f"Client : {h.get('client','')}",f"Sales Ref No.: {h.get('sales_ref','')}"]
+        mid=[f"Description : {payload.get('description','')}",f"W.O. No.: {h.get('wo','')}",f"Drg. No.: {h.get('drawing','')}"]
+        right=[f"PRE.BY : {h.get('prep_by','')}",f"Qty.: {payload.get('qty','')}",f"ESD No.: {h.get('esd','')}"]
+        left_x=19*mm
+        mid_x=75*mm
+        for i,text_value in enumerate(left):
+            canvas.drawString(left_x,y+(1.5-i)*line_step,text_value)
+        for i,text_value in enumerate(mid):
+            canvas.drawString(mid_x,y+(1.5-i)*line_step,text_value)
+        for i,text_value in enumerate(right):
+            canvas.drawRightString(right_edge,y+(1.5-i)*line_step,text_value)
         canvas.restoreState()
     doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
     out.seek(0)
@@ -7582,7 +7603,7 @@ class NumberedCanvas:
         w, hp = A4
         self._canvas.setFont('Helvetica', 6.5)
         self._canvas.drawRightString(
-            w - 8*mm, 4*mm,
+            w - 19*mm, 7*mm,
             f'{self._canvas.getPageNumber()} of {total}'
         )
 
@@ -7606,7 +7627,7 @@ def export_pdf(payload):
     rows = payload.get('rows', [])
     story = [
         Paragraph('-: Equipment List :-', title_style),
-        Spacer(1, 4*mm),
+        Spacer(1, 8*mm),
     ]
     data = [
         [Paragraph('EQPT.NO',head_style), Paragraph('SPECIFICATION',head_style), Paragraph('DESIGNATION',head_style),
@@ -7642,13 +7663,21 @@ def export_pdf(payload):
     def footer(canvas, doc_obj):
         canvas.saveState()
         w, hp = A4
-        y = 11*mm
+        y = 7*mm
         canvas.setFont('Helvetica', 6.5)
 
-        # Fixed footer zones matching the supplied BOM: left / center / right.
-        left_x = 8*mm
-        mid_x = 82*mm
-        right_x = 164*mm
+        # Header metadata and footer zones follow the supplied A4 BOM layout.
+        right_edge = w - 19*mm
+        header_lines = [
+            f"Doc.No.: {payload.get('document_no','SI EA/CS/FR/EG/015')}",
+            f"Rev.No.: {payload.get('revision','1.0')}, Eff.Dt: {payload.get('effective_date','17/07/2026')}",
+            f"Created By: {payload.get('created_by','EA CS ENGG')}"
+        ]
+        for i, text_value in enumerate(header_lines):
+            canvas.drawRightString(right_edge, hp - 14*mm - i*4*mm, text_value)
+
+        left_x = 19*mm
+        mid_x = 75*mm
         line_step = 3*mm
 
         left=[
@@ -7679,10 +7708,10 @@ def export_pdf(payload):
             max_width = mid_max_x - mid_x
             while stringWidth(text_value, 'Helvetica', 6.5) > max_width and len(text_value) > len(label) + 4:
                 text_value = text_value[:-2].rstrip() + '...'
-            canvas.drawString(mid_x, y+(2.5-i)*line_step, text_value)
+            canvas.drawString(mid_x, y+(1.5-i)*line_step, text_value)
 
         for i,(label,value) in enumerate(right):
-            canvas.drawString(right_x, y+(2.5-i)*line_step, (label+' '+str(value)).strip())
+            canvas.drawRightString(right_edge, y+(1.5-i)*line_step, (label+' '+str(value)).strip())
 
         canvas.restoreState()
     doc.build(story,onFirstPage=footer,onLaterPages=footer,canvasmaker=NumberedCanvas)
