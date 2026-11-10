@@ -411,7 +411,7 @@ def rows_by_designation(words,xmin,xmax,ymin,ymax):
   if xmin<=w['x']<=xmax and ymin<=w['y']<=ymax:
    t=clean(w['text'])
    if t.upper() in {'DESIG.','QTY.','NO.'}: continue
-   if re.fullmatch(r'[A-Z0-9]+(?:[-/,][A-Z0-9]+)*',t,re.I) and re.search(r'\d',t): vals.append((w['y'],t))
+   if re.fullmatch(r'[A-Z0-9]+(?:[-/,+][A-Z0-9]+)*',t,re.I) and (re.search(r'\d',t) or re.fullmatch(r'PS(?:\+S28)?',t,re.I)): vals.append((w['y'],t))
  vals.sort(); out=[]
  for y,t in vals:
   if not out or abs(y-out[-1][0])>5: out.append([y,t])
@@ -1243,7 +1243,7 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             all_rows.append(row)
         warnings.extend([f"{msld_name}: {w}" for w in file_warnings])
         for record in records:
-            if record.get('master_code') == 'PLUG_SOCKET_SWITCH':
+            if (record.get('master_code') == 'PLUG_SOCKET_SWITCH' and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', ' '.join([str(record.get('description') or ''), str(record.get('details') or ''), str(record.get('designation') or '')]), re.I) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', ' '.join([str(record.get('description') or ''), str(record.get('details') or ''), str(record.get('designation') or '')]), re.I)):
                 warnings.append(f"{msld_name}: Plug socket {record.get('designation') or ''}: 1P MCB is shown in the plug socket row. Please use a switched plug socket with built-in switch instead of a separate 1P MCB.")
         unmatched = [r['designation'] for r in records if r['master_code'] == 'UNMATCHED']
         if unmatched:
@@ -5718,7 +5718,7 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
- if 'PLUG SOCKET' in s and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', s) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', s):return 'PLUG_SOCKET_SWITCH'
+ if 'PLUG SOCKET WITH BUILT-IN SWITCH' in s or ('PLUG SOCKET' in s and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', s) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', s)):return 'PLUG_SOCKET_SWITCH'
  if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
@@ -6475,7 +6475,7 @@ def extract_from_files(msld_bytes,msld_name,dis_bytes,dis_name,client,sales,draw
    label = 'Switron rotary switch ' + str(record.get('designation') or 'S13')
    warnings.extend([label + ': ' + message for message in validation['errors']])
  for record in records:
-  if record.get('master_code') == 'PLUG_SOCKET_SWITCH':
+  if (record.get('master_code') == 'PLUG_SOCKET_SWITCH' and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', ' '.join([str(record.get('description') or ''), str(record.get('details') or ''), str(record.get('designation') or '')]), re.I) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', ' '.join([str(record.get('description') or ''), str(record.get('details') or ''), str(record.get('designation') or '')]), re.I)):
    warnings.append('Plug socket ' + str(record.get('designation') or '') + ': 1P MCB is shown in the plug socket row. Please use a switched plug socket with built-in switch instead of a separate 1P MCB.')
  warnings.extend(e2_led_wattage_warning(records))
  for row in rows:
