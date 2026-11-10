@@ -6257,7 +6257,7 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     'WITH BUILT-IN SWITCH',
     'VOLTAGE: 240V AC'
    ]
-   spec='\\n'.join(spec_lines)
+   spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='SPACE_HEATER':
