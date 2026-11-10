@@ -432,6 +432,7 @@ def designation_qty(des):
 def master_match(description,details,designation):
  s=(description+' '+details+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
+ if des == 'S16':return 'S16_AUX_SWITCH'
  if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
  if 'CURRENT TRANSFORMER' in s:return 'CT'
@@ -1012,6 +1013,17 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_indices=[12]
   elif r['master_code']=='VCB':
    spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
+   spec='\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='S16_AUX_SWITCH':
+   spec_lines=[
+    'B3NZ331',
+    'SIEMENS MAKE',
+    'AUX SWITCH FOR 3AH CIRCUIT',
+    'BREAKER TEST/SERVICE POSITION',
+    '4NO AT EACH TEST & SERVICE POSITION'
+   ]
    spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
