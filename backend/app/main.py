@@ -1045,6 +1045,16 @@ def em6400ng_spec(record, records):
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
+  # Normalize Control Link rows from the material/type text before choosing
+  # the BOM description branch. Some MSLD extractions retain the raw
+  # designation/type text and bypass the master classifier.
+  control_source = re.sub(r'[^A-Z0-9]', '', ' '.join(str(r.get(k) or '') for k in ('description','details','designation')).upper())
+  if '3NW32NNSL' in control_source or 'CONTROLLINK' in control_source:
+   r = dict(r)
+   r['master_code'] = 'CONTROL_LINK'
+  elif '3NW32NNSF' in control_source or 'CONTROLFUSEBASE' in control_source:
+   r = dict(r)
+   r['master_code'] = 'CONTROL_FUSE_BASE'
   relay_analysis = None
   meter_validation = None
   vcb_validation = None
@@ -1083,6 +1093,13 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
     '4NO AT EACH TEST & SERVICE POSITION'
    ]
    spec='\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='CONTROL_FUSE_BASE':
+   base_item = load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
+   base_description = (base_item or {}).get('discription', '')
+   spec_lines = [part.strip() for part in base_description.split(',') if part.strip()]
+   spec = '\\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='CONTROL_LINK':
@@ -1174,7 +1191,15 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   if r['master_code']=='CONTROL_LINK':
    link_qty = (r['quantity'] or 1)
    base_designation = str(r.get('designation','')) + 'A'
-   base_item = load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
+   # If the base is already present as an extracted equipment row, its own
+   # CONTROL_FUSE_BASE branch above formats it; do not append a duplicate.
+   base_already_present = any(
+    ('3NW32NNSF' in re.sub(r'[^A-Z0-9]', '', ' '.join(str(item.get(k) or '') for k in ('description','details','designation')).upper())
+     or 'CONTROLFUSEBASE' in re.sub(r'[^A-Z0-9]', '', ' '.join(str(item.get(k) or '') for k in ('description','details','designation')).upper()))
+    and str(item.get('designation','')).strip().upper() == base_designation.upper()
+    for item in records
+   )
+   base_item = None if base_already_present else load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
    base_spec = (base_item or {}).get('discription', '')
    base_lines = [part.strip() for part in base_spec.split(',') if part.strip()]
    if base_lines:
