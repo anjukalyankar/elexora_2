@@ -11,6 +11,12 @@ from app.main import (
 
 
 class TestEmergencyPushButton(unittest.TestCase):
+    def test_abbreviated_msld_emergency_trip_push_button_is_recognized(self):
+        self.assertEqual(
+            master_match("PUSH BUTTON RED (MUSHROOM HEAD)", "1NO+1NC EM. TRIP", "S1"),
+            "EMERGENCY_PUSH_BUTTON",
+        )
+
     def test_emergency_push_button_maps_all_no_nc_configurations(self):
         cases = [
             ("1NO+1NC", "1NO+1NC", "3SB54-00-0A"),
