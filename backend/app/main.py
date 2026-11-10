@@ -5671,6 +5671,37 @@ def space_heater_validation(record):
     return warnings
 
 
+def emergency_push_button_contact_config(record):
+    """Resolve the emergency push-button contact block from explicit MSLD NO/NC data."""
+    source = clean_value(' '.join(
+        str(record.get(key) or '')
+        for key in ('designation', 'description', 'details')
+    )).upper()
+    # Normalize common MSLD separators while keeping NO and NC counts distinct.
+    compact = re.sub(r'\s+', '', source)
+    patterns = [
+        (r'(?<!\d)1NO(?:\+|&|/|AND)1NC(?!\w)', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<!\d)1NC(?:\+|&|/|AND)1NO(?!\w)', '1NO+1NC', '3SB54-00-0A'),
+        (r'(?<!\d)2NO(?!\w)', '2NO', '3SB54-00-0E'),
+        (r'(?<!\d)2NC(?!\w)', '2NC', '3SB54-00-0F'),
+        (r'(?<!\d)1NO(?!\w)', '1NO', '3SB54-00-0B'),
+        (r'(?<!\d)1NC(?!\w)', '1NC', '3SB54-00-0C'),
+    ]
+    for pattern, label, suffix in patterns:
+        if re.search(pattern, compact):
+            return {'label': label, 'type': suffix, 'confirmed': True}
+    return {'label': None, 'type': None, 'confirmed': False}
+
+
+def emergency_push_button_validation(record):
+    config = emergency_push_button_contact_config(record)
+    if config['confirmed']:
+        return []
+    return [
+        'Emergency push-button NO/NC contact configuration is missing or unclear in the MSLD; contact-block type was not guessed. Please verify.'
+    ]
+
+
 def master_match(description,details,designation):
  # Active final classifier: designation may contain the equipment type.
  s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
@@ -5678,6 +5709,7 @@ def master_match(description,details,designation):
  if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
  if des in ('E11','E12') or 'SPACE HEATER' in s:return 'SPACE_HEATER'
+ if ('EMERGENCY' in s and 'PUSH BUTTON' in s) or 'EMERGENCY TRIP PB' in s:return 'EMERGENCY_PUSH_BUTTON'
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
  if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
@@ -6202,6 +6234,26 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    spec='\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
+  elif r['master_code']=='EMERGENCY_PUSH_BUTTON':
+   contact_config = emergency_push_button_contact_config(r)
+   contact_label = contact_config['label'] or '[CONTACT CONFIGURATION NOT CONFIRMED]'
+   contact_type = contact_config['type'] or '[CONTACT BLOCK TYPE NOT CONFIRMED]'
+   spec_lines=[
+    '3SB50',
+    'SIEMENS MAKE',
+    'EMERGENCY TRIP PUSH BUTTON',
+    'SICONT PUSH BUTTON ACTUATOR',
+    'MUSHROOM WITH P.F.R',
+    'WITH HOLDER FOR REAR CONNECTION',
+    'COLOUR : RED',
+    'WITH ' + contact_label + ' CONTACT BLOCK',
+    'TYPE :3SB50-00-0UC01+' + contact_type,
+    'WITH PROTECTIVE SHROUDS'
+   ]
+   spec='\n'.join(spec_lines)
+   emergency_push_button_validation_result = emergency_push_button_validation(r)
+   editable_fields=[]
+   editable_indices=[]
   elif r['master_code']=='SPACE_HEATER':
    spec_lines=[
     'APPROVED MAKE',
@@ -6480,6 +6532,10 @@ def extract_multiple_from_files(msld_files, dis_bytes, dis_name, client, sales, 
             if record.get('master_code') == 'SPACE_HEATER':
                 label = msld_name + ': Space heater ' + str(record.get('designation') or '')
                 warnings.extend(label + ': ' + message for message in space_heater_validation(record))
+        for record in records:
+            if record.get('master_code') == 'EMERGENCY_PUSH_BUTTON':
+                label = msld_name + ': Emergency push button ' + str(record.get('designation') or '')
+                warnings.extend(label + ': ' + message for message in emergency_push_button_validation(record))
         warnings.extend(e2_led_wattage_warning(records, msld_name))
         if not feeder_info:
             warnings.append(f"{msld_name}: feeder information could not be confidently extracted.")
