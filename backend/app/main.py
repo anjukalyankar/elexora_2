@@ -5718,7 +5718,7 @@ def master_match(description,details,designation):
  if 'DIGITAL MF METER' in s or 'EM6400NG' in s:return 'EM6400NG'
  if 'DIGITAL VOLTMETER' in s:return 'VOLTMETER'
  if 'DIGITAL AMMETER' in s:return 'AMMETER'
- if 'PLUG SOCKET' in s and re.search(r'\\b(?:1P|1 POLE|SINGLE POLE|SP)\\b', s) and re.search(r'\\bMCB\\b|MINIATURE CIRCUIT BREAKER', s):return 'PLUG_SOCKET_SWITCH'
+ if 'PLUG SOCKET' in s and re.search(r'\b(?:1P|1 POLE|SINGLE POLE|SP)\b', s) and re.search(r'\bMCB\b|MINIATURE CIRCUIT BREAKER', s):return 'PLUG_SOCKET_SWITCH'
  if 'MINIATURE CIRCUIT BREAKER' in s or re.search(r'\bMCB\b',s) or '5SL4206-7RC' in s:return 'MCB'
  return designation or 'UNMATCHED'
 
