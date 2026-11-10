@@ -5654,6 +5654,8 @@ def master_match(description,details,designation):
  # Active final classifier: designation may contain the equipment type.
  s=(str(description or '')+' '+str(details or '')+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
+ if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
+ if des == 'S16':return 'S16_AUX_SWITCH'
  if des == 'E2':return 'E2_LED'
  if des == 'S14' or 'TNC SWITCH' in s or 'BREAKER CONTROL SWITCH' in s:return 'TNC_SWITCH'
  if des == 'S13' or 'ROTARY SWITCH' in s or 'LOCAL REMOTE' in s:return 'ROTARY_SWITCH'
