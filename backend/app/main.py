@@ -429,9 +429,37 @@ def designation_qty(des):
   m=re.fullmatch(r'(?:[A-Z]+|\d+[A-Z]+)(\d+)-(?:[A-Z]+|\d+[A-Z]+)(\d+)',des.upper())
   if m: total=max(1,int(m.group(2))-int(m.group(1))+1)
  return total or None
+def is_test_service_limit_switch(description, details, designation):
+    """Identify the breaker test/service limit switch from its function and contacts."""
+    source = clean_value(' '.join([
+        str(description or ''), str(details or ''), str(designation or '')
+    ])).upper()
+    if not re.search(r'\bLIMIT\s+SWITCH\b', source):
+        return False
+    if not (re.search(r'\bTEST\b', source) and re.search(r'\bSERVICE\b', source)):
+        return False
+
+    # Accept explicit per-position contact statements or the compact
+    # "4NO TEST + 4NO SERVICE" wording found in extracted MSLD rows.
+    test_contacts = bool(
+        re.search(r'\b4\s*NO\s*(?:AT\s*)?TEST\b', source)
+        or re.search(r'\bTEST\s*[:=-]?\s*4\s*NO\b', source)
+    )
+    service_contacts = bool(
+        re.search(r'\b4\s*NO\s*(?:AT\s*)?SERVICE\b', source)
+        or re.search(r'\bSERVICE\s*[:=-]?\s*4\s*NO\b', source)
+    )
+    combined_contacts = bool(re.search(
+        r'\b4\s*NO\s+AT\s+EACH\s+TEST\s*(?:&|AND|/)\s*SERVICE\b',
+        source
+    ))
+    return combined_contacts or (test_contacts and service_contacts)
+
+
 def master_match(description,details,designation):
  s=(description+' '+details+' '+str(designation or '')).upper()
  des=re.sub(r'\s+','',str(designation or '')).upper()
+ if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
  if des == 'E2':return 'E2_LED'
  if 'LED LAMP' in s or re.search(r'\bLED\b',s):return 'LED'
@@ -6139,7 +6167,18 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
   vcb_validation = None
   auxiliary_relay_validation = None
   damping_resistor_validation = None
-  if r['master_code']=='VCB':
+  if r['master_code']=='S16_AUX_SWITCH':
+   spec_lines=[
+    'B3NZ331',
+    'SIEMENS MAKE',
+    'AUX SWITCH FOR 3AH CIRCUIT',
+    'BREAKER TEST/SERVICE POSITION',
+    '4NO AT EACH TEST & SERVICE POSITION'
+   ]
+   spec='\\n'.join(spec_lines)
+   editable_fields=[]
+   editable_indices=[]
+  elif r['master_code']=='VCB':
    spec_lines, vcb_validation = vcb_spec(r, dis_text, msld_text)
    spec='\n'.join(spec_lines)
    editable_fields=[]
