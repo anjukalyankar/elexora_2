@@ -5704,6 +5704,9 @@ def master_match(description,details,designation):
  des=re.sub(r'\s+','',str(designation or '')).upper()
  if is_test_service_limit_switch(description, details, designation):return 'S16_AUX_SWITCH'
  if des == 'S16':return 'S16_AUX_SWITCH'
+ # F21 is the MCB feeding the space heater; do not classify it as the heater
+ # merely because its row text mentions the space-heater circuit/load.
+ if des == 'F21':return 'MCB'
  if des in ('E11','E12') or 'SPACE HEATER' in s:return 'SPACE_HEATER'
  if (('EMERGENCY' in s and 'PUSH BUTTON' in s) or 'EMERGENCY TRIP PB' in s or ('PUSH BUTTON' in s and ('EM. TRIP' in s or 'EM TRIP' in s or 'EMERGENCY TRIP' in s))):return 'EMERGENCY_PUSH_BUTTON'
  if des == 'E2':return 'E2_LED'
