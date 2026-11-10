@@ -6291,6 +6291,17 @@ def rotary_switch_validation(record, master_item=None):
 def build_rows(feeder_info,records,msld_text='',dis_text=''):
  feeder_name=feeder_info[0].get('designation') or feeder_info[0].get('name','') if feeder_info else ''; feeder_qty=feeder_info[0].get('quantity','1') if feeder_info else '1'; feeder_match=re.search(r'\d+',str(feeder_qty)); feeder_qty_num=int(feeder_match.group()) if feeder_match else 1; rows=[]
  for i,r in enumerate(records,1):
+  # The last build_rows definition is the active production pipeline.
+  # Normalize the equipment identity here as well as in master_match so
+  # the master description branch cannot be bypassed by extraction labels.
+  source_text = ' '.join(str(r.get(k) or '') for k in ('description','details','designation')).upper()
+  source_compact = re.sub(r'[^A-Z0-9]', '', source_text)
+  if '3NW32NNSL' in source_compact or 'CONTROLLINK' in source_compact:
+   r = dict(r)
+   r['master_code'] = 'CONTROL_LINK'
+  elif '3NW32NNSF' in source_compact or 'CONTROLFUSEBASE' in source_compact:
+   r = dict(r)
+   r['master_code'] = 'CONTROL_FUSE_BASE'
   relay_analysis = None
   vcb_validation = None
   auxiliary_relay_validation = None
@@ -6413,8 +6424,13 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    editable_indices=[]
   elif r['master_code']=='CONTROL_LINK':
    master_item = load_control_link_master('CONTROL-LINK-3NW-32NNSL')
-   spec = (master_item or {}).get('discription', '')
-   spec_lines = [part.strip() for part in spec.split(',') if part.strip()]
+   master_description = (master_item or {}).get('discription', '')
+   # Keep the approved master wording even if the CSV lookup is unavailable
+   # in a deployment; never fall back to the raw single-line MSLD string.
+   if not master_description:
+    master_description = '3NW 32NNSL, SIEMENS MAKE, CONTROL LINK, RATING: 32 AMPS'
+   spec_lines = [part.strip() for part in master_description.split(',') if part.strip()]
+   spec = '\n'.join(spec_lines)
    editable_fields=[]
    editable_indices=[]
   elif r['master_code']=='MCB':
@@ -6515,6 +6531,8 @@ def build_rows(feeder_info,records,msld_text='',dis_text=''):
    base_designation = str(r.get('designation','')) + 'A'
    base_item = load_control_link_master('CONTROL-FUSE-BASE-3NW-32NNSF')
    base_spec = (base_item or {}).get('discription', '')
+   if not base_spec:
+    base_spec = '3NW 32NNSF, SIEMENS MAKE, CONTROL FUSE BASE, SUITABLE FRONT CONNECTION, TYPE: 3NW 32NNSF, RATING: 32 AMPS'
    base_lines = [part.strip() for part in base_spec.split(',') if part.strip()]
    if base_lines:
     rows.append({'sr':len(rows)+1,'specification':'\n'.join(base_lines),'specification_lines':base_lines,'editable_fields':[],'editable_indices':[],'designation':base_designation,'feeder_name':feeder_name,'feeder_qty':feeder_qty,'total':link_qty*feeder_qty_num,'eqpt_qty':link_qty,'mpd':'','amd':'','master_code':'CONTROL_FUSE_BASE'})
