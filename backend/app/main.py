@@ -41,10 +41,12 @@ def init_auth_db():
         )""")
         # Additive, restart-safe migration. Existing accounts default to user.
         conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'")
+        # Never promote a hard-coded account. Configure the first Super Admin
+        # explicitly in Render; ADMIN_USERNAME remains as a compatibility fallback.
         configured_super_admin = (
             os.getenv("SUPER_ADMIN_USERNAME")
             or os.getenv("ADMIN_USERNAME")
-            or "Anju_Kalyankar"
+            or ""
         ).strip().lower()
         if configured_super_admin:
             conn.execute(
