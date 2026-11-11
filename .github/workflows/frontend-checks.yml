@@ -1,0 +1,32 @@
+name: Frontend checks
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-checks.yml"
+  push:
+    branches:
+      - main
+      - feature/admin-rbac-foundation
+      - feature/admin-dashboard-shell
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-checks.yml"
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
