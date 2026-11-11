@@ -39,6 +39,20 @@ def init_auth_db():
             password_hash TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""")
+        # Additive, restart-safe migration. Existing accounts default to user.
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'")
+        # Never promote a hard-coded account. Configure the first Super Admin
+        # explicitly in Render; ADMIN_USERNAME remains as a compatibility fallback.
+        configured_super_admin = (
+            os.getenv("SUPER_ADMIN_USERNAME")
+            or os.getenv("ADMIN_USERNAME")
+            or ""
+        ).strip().lower()
+        if configured_super_admin:
+            conn.execute(
+                "UPDATE users SET role='super_admin' WHERE username=%s AND role='user'",
+                (configured_super_admin,)
+            )
         conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -99,14 +113,25 @@ def current_user(authorization: str = Header(default="")):
     return row["username"]
 
 
-def is_admin_username(username):
-    configured = os.getenv("ADMIN_USERNAME", "Anju_Kalyankar").strip().lower()
-    return bool(username) and username.strip().lower() == configured
-
-
 def require_admin(user: str = Depends(current_user)):
-    if not is_admin_username(user):
+    with db() as conn:
+        row = conn.execute(
+            "SELECT role FROM users WHERE username=%s",
+            (user.strip().lower(),)
+        ).fetchone()
+    if not row or row["role"] not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin access only.")
+    return user
+
+
+def require_super_admin(user: str = Depends(current_user)):
+    with db() as conn:
+        row = conn.execute(
+            "SELECT role FROM users WHERE username=%s",
+            (user.strip().lower(),)
+        ).fetchone()
+    if not row or row["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin access only.")
     return user
 
 
@@ -1806,7 +1831,7 @@ def login(payload: AuthRequest):
     username = payload.username.strip().lower()
     with db() as conn:
         row = conn.execute(
-            "SELECT id,password_hash,username FROM users WHERE username=%s",
+            "SELECT id,password_hash,username,role FROM users WHERE username=%s",
             (username,)
         ).fetchone()
         if not row or not password_ok(payload.password, row["password_hash"]):
@@ -1818,7 +1843,24 @@ def login(payload: AuthRequest):
             (token, row["id"], expires)
         )
         conn.commit()
-    return {"token":token,"username":row["username"],"expires_at":expires}
+    return {"token":token,"username":row["username"],"role":row["role"],"expires_at":expires}
+
+
+@app.get('/api/auth/me')
+def auth_me(user: str = Depends(current_user)):
+    with db() as conn:
+        row = conn.execute(
+            "SELECT username, role FROM users WHERE username=%s",
+            (user.strip().lower(),)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="Account not found.")
+    return {
+        "username": row["username"],
+        "role": row["role"],
+        "is_admin": row["role"] in ("admin", "super_admin"),
+        "is_super_admin": row["role"] == "super_admin",
+    }
 
 @app.post('/api/auth/logout')
 def logout(authorization: str = Header(default="")):
