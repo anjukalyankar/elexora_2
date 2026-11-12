@@ -69,6 +69,28 @@ def init_auth_db():
             row_count INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""")
+        # Staging is separate from the approved CSV used by BOM matching.
+        conn.execute("""CREATE TABLE IF NOT EXISTS master_data_proposals (
+            id BIGSERIAL PRIMARY KEY,
+            record_data JSONB NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+            submitted_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            reviewed_by TEXT,
+            reviewed_at TIMESTAMPTZ,
+            review_note TEXT NOT NULL DEFAULT ''
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS master_data_audit (
+            id BIGSERIAL PRIMARY KEY,
+            proposal_id BIGINT NOT NULL REFERENCES master_data_proposals(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            details JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_master_data_proposals_status_created ON master_data_proposals(status, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_master_data_audit_created ON master_data_audit(created_at DESC)")
         conn.commit()
 
 
@@ -1641,6 +1663,114 @@ def admin_bom_history(user: str = Depends(require_admin)):
                FROM bom_history ORDER BY created_at DESC LIMIT 500"""
         ).fetchall()
     return {'total_generated': total, 'history': rows}
+
+
+# Master Data staging API. The approved CSV remains read-only and continues to
+# be the sole source for deterministic BOM matching.
+MASTER_DATA_FIELDS = ('ID','MATERIAL_CODE','CATEGORY','DISCRIPTION','MANUFACTURER','MODEL','UNIT','UNIT_PRICE')
+MASTER_DATA_CSV = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'master_database.csv')
+
+class MasterDataProposal(BaseModel):
+    record: dict
+
+class MasterDataReview(BaseModel):
+    decision: str
+    note: str = ''
+
+
+def _clean_master_record(raw):
+    record = {field: str(raw.get(field, '') or '').strip() for field in MASTER_DATA_FIELDS}
+    if not record['DISCRIPTION']:
+        record['DISCRIPTION'] = str(raw.get('DESCRIPTION', '') or '').strip()
+    if not record['MATERIAL_CODE'] or not record['CATEGORY'] or not record['DISCRIPTION']:
+        raise HTTPException(status_code=400, detail='Material Code, Category and Description are required.')
+    if len(record['MATERIAL_CODE']) > 120 or len(record['DISCRIPTION']) > 2000:
+        raise HTTPException(status_code=400, detail='Material Code or Description exceeds the allowed length.')
+    return record
+
+
+@app.get('/api/admin/master-data')
+def admin_master_data(user: str = Depends(require_admin)):
+    import csv
+    records = []
+    try:
+        with open(MASTER_DATA_CSV, newline='', encoding='utf-8-sig') as source:
+            for row in csv.DictReader(source):
+                records.append({field: str(row.get(field, '') or '') for field in MASTER_DATA_FIELDS})
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail='Approved master_database.csv was not found.')
+    return {'total': len(records), 'fields': list(MASTER_DATA_FIELDS), 'records': records}
+
+
+@app.get('/api/admin/master-data/proposals')
+def admin_master_data_proposals(status: str = 'all', user: str = Depends(require_admin)):
+    if status not in ('all', 'pending', 'approved', 'rejected'):
+        raise HTTPException(status_code=400, detail='Invalid proposal status.')
+    with db() as conn:
+        if status == 'all':
+            rows = conn.execute("""SELECT id, record_data, status, submitted_by, created_at,
+                updated_at, reviewed_by, reviewed_at, review_note
+                FROM master_data_proposals ORDER BY created_at DESC LIMIT 500""").fetchall()
+        else:
+            rows = conn.execute("""SELECT id, record_data, status, submitted_by, created_at,
+                updated_at, reviewed_by, reviewed_at, review_note
+                FROM master_data_proposals WHERE status=%s ORDER BY created_at DESC LIMIT 500""", (status,)).fetchall()
+    return {'proposals': rows}
+
+
+@app.post('/api/admin/master-data/proposals')
+def create_master_data_proposal(payload: MasterDataProposal, user: str = Depends(require_admin)):
+    record = _clean_master_record(payload.record)
+    with db() as conn:
+        row = conn.execute("""INSERT INTO master_data_proposals(record_data, submitted_by)
+            VALUES(%s::jsonb,%s) RETURNING id, record_data, status, submitted_by, created_at""",
+            (json.dumps(record), user)).fetchone()
+        conn.execute("INSERT INTO master_data_audit(proposal_id,action,actor,details) VALUES(%s,'created',%s,%s::jsonb)",
+            (row['id'], user, json.dumps({'record': record})))
+        conn.commit()
+    return {'proposal': row}
+
+
+@app.put('/api/admin/master-data/proposals/{proposal_id}')
+def update_master_data_proposal(proposal_id: int, payload: MasterDataProposal, user: str = Depends(require_admin)):
+    record = _clean_master_record(payload.record)
+    with db() as conn:
+        row = conn.execute("""UPDATE master_data_proposals SET record_data=%s::jsonb, updated_at=NOW()
+            WHERE id=%s AND status='pending' RETURNING id""", (json.dumps(record), proposal_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Pending proposal not found; reviewed proposals cannot be edited.')
+        conn.execute("INSERT INTO master_data_audit(proposal_id,action,actor,details) VALUES(%s,'updated',%s,%s::jsonb)",
+            (proposal_id, user, json.dumps({'record': record})))
+        conn.commit()
+    return {'message': 'Proposal updated. It remains pending approval.'}
+
+
+@app.post('/api/admin/master-data/proposals/{proposal_id}/review')
+def review_master_data_proposal(proposal_id: int, payload: MasterDataReview, user: str = Depends(require_super_admin)):
+    decision = payload.decision.strip().lower()
+    if decision not in ('approved', 'rejected'):
+        raise HTTPException(status_code=400, detail='Decision must be approved or rejected.')
+    note = payload.note.strip()[:1000]
+    with db() as conn:
+        row = conn.execute("""UPDATE master_data_proposals SET status=%s, reviewed_by=%s,
+            reviewed_at=NOW(), review_note=%s, updated_at=NOW()
+            WHERE id=%s AND status='pending' RETURNING id, record_data, status, submitted_by,
+            created_at, reviewed_by, reviewed_at, review_note""",
+            (decision, user, note, proposal_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Pending proposal not found or already reviewed.')
+        conn.execute("INSERT INTO master_data_audit(proposal_id,action,actor,details) VALUES(%s,%s,%s,%s::jsonb)",
+            (proposal_id, decision, user, json.dumps({'note': note, 'live_csv_changed': False})))
+        conn.commit()
+    return {'proposal': row, 'live_master_csv_changed': False}
+
+
+@app.get('/api/admin/master-data/audit')
+def admin_master_data_audit(user: str = Depends(require_admin)):
+    with db() as conn:
+        rows = conn.execute("""SELECT id, proposal_id, action, actor, details, created_at
+            FROM master_data_audit ORDER BY created_at DESC LIMIT 500""").fetchall()
+    return {'events': rows}
 
 def export_combined_book(payload):
     wb = Workbook()
