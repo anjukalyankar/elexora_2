@@ -1796,6 +1796,134 @@ def export_approved_master_data_proposals(user: str = Depends(require_super_admi
     )
 
 
+
+# Bulk Excel intake: validated rows enter the existing proposal queue only.
+class BulkMasterDataSubmit(BaseModel):
+    records: list[dict]
+    source_filename: str = 'master-data-upload.xlsx'
+
+
+def _bulk_master_data_validate(records, source_filename='master-data-upload.xlsx'):
+    import csv
+    approved_codes = set()
+    try:
+        with open(MASTER_DATA_CSV, newline='', encoding='utf-8-sig') as source:
+            for row in csv.DictReader(source):
+                code = str(row.get('MATERIAL_CODE') or '').strip().casefold()
+                if code:
+                    approved_codes.add(code)
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail='Approved master_database.csv was not found.')
+    with db() as conn:
+        staged_rows = conn.execute(
+            """SELECT record_data->>'MATERIAL_CODE' AS material_code
+               FROM master_data_proposals WHERE status IN ('pending','approved')"""
+        ).fetchall()
+    staged_codes = {str(row.get('material_code') or '').strip().casefold()
+                    for row in staged_rows if str(row.get('material_code') or '').strip()}
+    seen_codes, clean_rows, errors, warnings = set(), [], [], []
+    for index, raw in enumerate(records, start=2):
+        try:
+            record = _clean_master_record(raw)
+        except HTTPException as exc:
+            errors.append({'row': index, 'message': str(exc.detail)})
+            continue
+        code = record['MATERIAL_CODE'].casefold()
+        if code in seen_codes:
+            errors.append({'row': index, 'message': f"Duplicate Material Code within this upload: {record['MATERIAL_CODE']}."})
+        elif code in approved_codes:
+            errors.append({'row': index, 'message': f"Material Code already exists in the approved master CSV: {record['MATERIAL_CODE']}."})
+        elif code in staged_codes:
+            errors.append({'row': index, 'message': f"Material Code already exists in a pending/approved proposal: {record['MATERIAL_CODE']}."})
+        seen_codes.add(code)
+        model = record.get('MODEL', '').strip().upper()
+        if '7SJ66' in model and not re.fullmatch(
+            r'7SJ66\d{2}-[A-Z0-9]{5}-[A-Z0-9]{4}(?:\+[A-Z0-9]{3})?', model
+        ):
+            warnings.append({'row': index, 'message': '7SJ66 MLFB format should be checked against its Siemens selection chart.'})
+        clean_rows.append(record)
+    return {'records': clean_rows, 'errors': errors, 'warnings': warnings,
+            'source_filename': str(source_filename or 'master-data-upload.xlsx')[:180]}
+
+
+@app.post('/api/admin/master-data/bulk-upload/preview')
+async def preview_master_data_bulk_upload(file: UploadFile = File(...), user: str = Depends(require_admin)):
+    from openpyxl import load_workbook
+    filename = file.filename or 'master-data-upload.xlsx'
+    if not filename.lower().endswith('.xlsx'):
+        raise HTTPException(status_code=400, detail='Upload an .xlsx workbook using the ELEXORA master-data format.')
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail='The uploaded Excel file is empty.')
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail='Excel upload exceeds the 10 MB limit.')
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        sheet = workbook.active
+        header_values = [str(value or '').strip().upper() for value in next(
+            sheet.iter_rows(min_row=1, max_row=1, values_only=True), ())]
+        if 'DESCRIPTION' in header_values and 'DISCRIPTION' not in header_values:
+            header_values[header_values.index('DESCRIPTION')] = 'DISCRIPTION'
+        missing_headers = [field for field in MASTER_DATA_FIELDS if field not in header_values]
+        if missing_headers:
+            workbook.close()
+            raise HTTPException(status_code=400, detail='Missing required ELEXORA columns: ' + ', '.join(missing_headers))
+        positions = {field: header_values.index(field) for field in MASTER_DATA_FIELDS}
+        raw_records = []
+        for values in sheet.iter_rows(min_row=2, values_only=True):
+            if not values or not any(value is not None and str(value).strip() for value in values):
+                continue
+            raw_records.append({field: (values[pos] if pos < len(values) else '') for field, pos in positions.items()})
+            if len(raw_records) > 2000:
+                workbook.close()
+                raise HTTPException(status_code=400, detail='A single upload may contain at most 2,000 non-empty rows.')
+        workbook.close()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail='Could not read this Excel workbook. Please use the ELEXORA .xlsx template.')
+    if not raw_records:
+        raise HTTPException(status_code=400, detail='The Excel workbook contains no data rows.')
+    result = _bulk_master_data_validate(raw_records, filename)
+    result['total_rows'] = len(raw_records)
+    result['valid_rows'] = len(result['records']) - len(result['errors'])
+    return result
+
+
+@app.post('/api/admin/master-data/bulk-upload/submit')
+def submit_master_data_bulk_upload(payload: BulkMasterDataSubmit, user: str = Depends(require_admin)):
+    if not payload.records:
+        raise HTTPException(status_code=400, detail='There are no valid rows to submit.')
+    if len(payload.records) > 2000:
+        raise HTTPException(status_code=400, detail='A single upload may contain at most 2,000 rows.')
+    result = _bulk_master_data_validate(payload.records, payload.source_filename)
+    if result['errors']:
+        raise HTTPException(status_code=409, detail={
+            'message': 'The upload changed or conflicts were detected. Please upload the corrected workbook and preview it again.',
+            'errors': result['errors']
+        })
+    import json
+    with db() as conn:
+        for record in result['records']:
+            row = conn.execute(
+                """INSERT INTO master_data_proposals(record_data, submitted_by)
+                   VALUES(%s::jsonb,%s) RETURNING id""",
+                (json.dumps(record), user)
+            ).fetchone()
+            conn.execute(
+                """INSERT INTO master_data_audit(proposal_id,action,actor,details)
+                   VALUES(%s,'bulk_created',%s,%s::jsonb)""",
+                (row['id'], user, json.dumps({
+                    'record': record, 'source_filename': result['source_filename'],
+                    'live_csv_changed': False
+                }))
+            )
+        conn.commit()
+    return {'submitted': len(result['records']), 'status': 'pending',
+            'message': 'Rows submitted as pending proposals. Super Admin review is required.',
+            'live_master_csv_changed': False}
+
+
 def export_combined_book(payload):
     wb = Workbook()
     ws = wb.active
