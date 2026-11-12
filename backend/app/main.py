@@ -1772,6 +1772,30 @@ def admin_master_data_audit(user: str = Depends(require_admin)):
             FROM master_data_audit ORDER BY created_at DESC LIMIT 500""").fetchall()
     return {'events': rows}
 
+@app.get('/api/admin/master-data/approved-export')
+def export_approved_master_data_proposals(user: str = Depends(require_super_admin)):
+    """Download approved proposals as a CSV patch; never edits the live master CSV."""
+    import csv
+    output = io.StringIO(newline='')
+    writer = csv.DictWriter(output, fieldnames=MASTER_DATA_FIELDS, extrasaction='ignore')
+    writer.writeheader()
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT id, record_data FROM master_data_proposals
+               WHERE status='approved' ORDER BY reviewed_at ASC, id ASC"""
+        ).fetchall()
+    for row in rows:
+        record = row['record_data'] or {}
+        writer.writerow({field: str(record.get(field, '') or '') for field in MASTER_DATA_FIELDS})
+    content = output.getvalue().encode('utf-8-sig')
+    from fastapi.responses import Response
+    return Response(
+        content=content,
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename="approved_master_data_proposals.csv"'}
+    )
+
+
 def export_combined_book(payload):
     wb = Workbook()
     ws = wb.active
