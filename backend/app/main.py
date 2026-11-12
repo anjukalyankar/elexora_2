@@ -89,6 +89,8 @@ def init_auth_db():
             details JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_master_data_proposals_status_created ON master_data_proposals(status, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_master_data_audit_created ON master_data_audit(created_at DESC)")
         conn.commit()
 
 
