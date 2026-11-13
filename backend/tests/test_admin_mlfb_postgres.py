@@ -93,7 +93,7 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
         self.assertTrue(result["candidate_found_in_chart"])
         self.assertIn(result["status"], {"candidate_found_and_decoded", "decoded_chart_review_required"})
 
-        with self.db() as conn:
+        with type(self).db() as conn:
             audit = conn.execute(
                 "SELECT COUNT(*) AS n FROM admin_selection_chart_audit WHERE chart_id=%s",
                 (chart_id,),
