@@ -53,6 +53,22 @@ class TestAdminMlfbHelpers(unittest.TestCase):
         self.assertEqual(result["positions"][15], "F")
         self.assertEqual(result["positions"][16], "2")
 
+        # Ground-truth example printed on the uploaded Siemens 3AH3 chart.
+        by_position = {item["position"]: item for item in result["decoded_positions"]}
+        self.assertEqual(by_position[5]["decoded"], "36 kV")
+        self.assertIn("300 mm", by_position[6]["decoded"])
+        self.assertEqual(by_position[7]["decoded"], "31.5 kA")
+        self.assertEqual(by_position[8]["decoded"], "1250 A")
+        self.assertIn("2nd shunt release (L)", by_position[9]["decoded"])
+        self.assertEqual(by_position[10]["decoded"], "220 V DC")
+        self.assertEqual(by_position[11]["decoded"], "220 V DC")
+        self.assertEqual(by_position[12]["decoded"], "220 V DC")
+        self.assertEqual(by_position[13]["decoded"], "Without 3rd release")
+        self.assertEqual(by_position[14]["decoded"], "220 V DC")
+        self.assertIn("12NO+12NC", by_position[15]["decoded"])
+        self.assertIn("64-pin socket", by_position[15]["decoded"])
+        self.assertIn("50 Hz", by_position[16]["decoded"])
+
     def test_3ah3_decoder_reports_msld_mismatches(self):
         result = decode_3ah3_mlfb(
             "3AH3-3152-EFFW-AFF2",
