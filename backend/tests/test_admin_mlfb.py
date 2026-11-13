@@ -1,10 +1,31 @@
 import unittest
 
+import fitz
+
+from backend.app.admin_mlfb import _extract_pdf
+
 from backend.app.admin_mlfb import extract_candidate_mlfbs, normalize_mlfb
 from backend.app.vcb_chart import decode_3ah3_mlfb
 
 
 class TestAdminMlfbHelpers(unittest.TestCase):
+    def test_scanned_pdf_uses_ocr_fallback(self):
+        # Render text to an image-only PDF so the selectable text layer is empty.
+        source = fitz.open()
+        page = source.new_page(width=595, height=842)
+        page.insert_text((60, 100), "OCRTEST 3AH3-3152-EFFW-AFF2", fontsize=20)
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        scanned = fitz.open()
+        image_page = scanned.new_page(width=595, height=842)
+        image_page.insert_image(image_page.rect, pixmap=pixmap)
+        payload = scanned.tobytes()
+        scanned.close()
+        source.close()
+
+        result = _extract_pdf(payload)
+        self.assertIn("OCR was used", " ".join(result["warnings"]))
+        self.assertIn("3AH3-3152-EFFW-AFF2", result["text"])
+
     def test_extracts_common_siemens_candidate_formats(self):
         text = "MLFB: 7SJ6611-5DB90-1FG4+L0R and 3AH3-3152-EFFW-AFF2"
         found = extract_candidate_mlfbs(text)
