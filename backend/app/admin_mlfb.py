@@ -362,7 +362,7 @@ def build_admin_selection_chart_router(db, require_admin):
         decoded = None
         if validation.get("mlfb"):
             from .vcb_chart import decode_3ah3_mlfb
-            decoded = decode_3ah3_mlfb(validation["mlfb"], payload.description + "\\n" + payload.msld_text)
+            decoded = decode_3ah3_mlfb(validation["mlfb"], payload.description + "\n" + payload.msld_text)
         return {
             "equipment_family": "3AH3",
             "designation": payload.designation.strip() or "Q10",
