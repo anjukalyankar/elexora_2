@@ -235,7 +235,7 @@ _3AH3_FREQUENCY = {"2": "50 Hz; English rating plate and operating instructions"
 
 
 def _mlfd_voltage(text, label):
-    match = re.search(r"\\b(11|12|22|24|33|36)\\s*KV\\b", text, re.I)
+    match = re.search(r"\b(11|12|22|24|33|36)\s*KV\b", text, re.I)
     if not match:
         return None
     value = match.group(1)
@@ -246,7 +246,7 @@ def _mlfd_voltage(text, label):
 
 def decode_3ah3_mlfb(mlfb, msld_text=""):
     """Decode the 3AH3 MLFB positions against the uploaded Siemens chart."""
-    value = re.sub(r"\\s+", "", str(mlfb or "").upper().replace("＋", "+"))
+    value = re.sub(r"\s+", "", str(mlfb or "").upper().replace("＋", "+"))
     match = re.fullmatch(r"3AH3-([A-Z0-9]{4})-([A-Z0-9]{4})-([A-Z0-9]{4})", value)
     if not match:
         return {
@@ -298,7 +298,7 @@ def decode_3ah3_mlfb(mlfb, msld_text=""):
         if not actual:
             warnings.append(f"MSLD {label} = {requested}; MLFB position {position} could not be decoded for comparison.")
             return
-        norm = lambda s: re.sub(r"\\s+", "", str(s).upper()).replace("VOLT", "V")
+        norm = lambda s: re.sub(r"\s+", "", str(s).upper()).replace("VOLT", "V")
         if norm(requested) == norm(actual):
             checks.append({"item": label, "status": "matched", "detail": f"MSLD {requested}; position {position} decodes to {actual}."})
         else:
@@ -308,15 +308,15 @@ def decode_3ah3_mlfb(mlfb, msld_text=""):
 
     rated_voltage = _3AH3_VOLTAGE.get(pos[5])
     if rated_voltage:
-        system_match = re.search(r"\\b(11|12|22|24|33|36)\\s*KV\\b", text)
+        system_match = re.search(r"\b(11|12|22|24|33|36)\s*KV\b", text)
         if system_match:
             requested_class = {"11": "12", "12": "12", "22": "24", "24": "24", "33": "36", "36": "36"}[system_match.group(1)]
             compare(5, "Breaker rated voltage class", requested_class + " kV", rated_voltage)
 
-    current_match = re.search(r"\\b(1250|1600|2000|2500|3150)\\s*A\\b", text)
+    current_match = re.search(r"\b(1250|1600|2000|2500|3150)\s*A\b", text)
     compare(8, "Rated current", current_match.group(1) + " A" if current_match else "", _3AH3_CURRENT.get(pos[8], ""))
 
-    breaking_match = re.search(r"\\b(25|31\\.5|40|44)\\s*KA\\b", text)
+    breaking_match = re.search(r"\b(25|31\.5|40|44)\s*KA\b", text)
     decoded_breaking = _3AH3_BREAKING.get(pos[7], "")
     if breaking_match and decoded_breaking:
         requested_breaking = breaking_match.group(1) + " kA"
@@ -328,15 +328,15 @@ def decode_3ah3_mlfb(mlfb, msld_text=""):
             checks.append({"item": "Breaking capacity", "status": "matched", "detail": f"MSLD {requested_breaking}; position 7 decodes to {decoded_breaking}."})
 
     def labelled_supply(pattern):
-        found = re.search(pattern + r"\\s*[:=]?\\s*(\\d{2,3}\\s*V\\s*(?:AC|DC))", text, re.I)
+        found = re.search(pattern + r"\s*[:=]?\s*(\d{2,3}\s*V\s*(?:AC|DC))", text, re.I)
         return _clean(found.group(1)).upper() if found else ""
 
     compare(14, "Spring-charging motor supply", labelled_supply(r"MOTOR"), _3AH3_MOTOR.get(pos[14], ""))
-    compare(10, "Closing-coil supply", labelled_supply(r"(?:C\\.?\\s*C\\.?|CLOSING\\s*COIL)"), _3AH3_VOLTAGE_10_11.get(pos[10], ""))
-    compare(11, "Trip / first-shunt release supply", labelled_supply(r"(?:T\\.?\\s*C\\.?|TRIP\\s*COIL)"), _3AH3_VOLTAGE_10_11.get(pos[11], ""))
+    compare(10, "Closing-coil supply", labelled_supply(r"(?:C\.?\s*C\.?|CLOSING\s*COIL)"), _3AH3_VOLTAGE_10_11.get(pos[10], ""))
+    compare(11, "Trip / first-shunt release supply", labelled_supply(r"(?:T\.?\s*C\.?|TRIP\s*COIL)"), _3AH3_VOLTAGE_10_11.get(pos[11], ""))
 
-    contact_match = re.search(r"\\b(6|12)\\s*NO\\s*\\+\\s*(6|12)\\s*NC\\b", text)
-    socket_match = re.search(r"\\b(24|32|64)\\s*(?:WAY|PIN)\\s*(?:PLUG|SOCKET)?\\b", text)
+    contact_match = re.search(r"\b(6|12)\s*NO\s*\+\s*(6|12)\s*NC\b", text)
+    socket_match = re.search(r"\b(24|32|64)\s*(?:WAY|PIN)\s*(?:PLUG|SOCKET)?\b", text)
     if contact_match or socket_match:
         expected = _3AH3_AUX_SOCKET.get(pos[15], "")
         requested_parts = []
