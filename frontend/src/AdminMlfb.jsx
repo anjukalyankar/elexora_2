@@ -13,6 +13,7 @@ export default function AdminMlfb({ api }) {
   const [saving, setSaving] = useState(false);
   const [selectedChart, setSelectedChart] = useState('');
   const [mlfb, setMlfb] = useState('');
+  const [validationMsldText, setValidationMsldText] = useState('');
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState(null);
   const [buildDescription, setBuildDescription] = useState('');
@@ -130,7 +131,7 @@ export default function AdminMlfb({ api }) {
       const response = await fetch(api + '/api/admin/mlfb/validate', {
         method: 'POST',
         headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mlfb, chart_id: selectedChart ? Number(selectedChart) : null })
+        body: JSON.stringify({ mlfb, msld_text: validationMsldText, chart_id: selectedChart ? Number(selectedChart) : null })
       });
       const data = await response.json();
       if (!response.ok) throw Error(data.detail || 'MLFB validation failed.');
@@ -266,6 +267,9 @@ export default function AdminMlfb({ api }) {
         <label>MLFB<input value={mlfb} onChange={event => setMlfb(event.target.value)} placeholder="Enter or select an MLFB"/></label>
         <button onClick={validateMlfb} disabled={validating}>{validating ? 'Checking…' : 'Validate MLFB'}</button>
       </div>
+      <label className="admin-mlfb-msld-input">MSLD technical text (optional for chart-only review; required for technical comparison)
+        <textarea rows="3" value={validationMsldText} onChange={event => setValidationMsldText(event.target.value)} placeholder="CT SEC: 1A, AUX 110V DC, 4CT, 4VT, 16BI+7BO, FLUSH MOUNTING, IEC 61850 RJ45, PROTECTION: 50, 51, 50N, 51N, 27, 59, 74TC"/>
+      </label>
       {validation && <div className="admin-mlfb-result">
         <div className="bomhead"><strong>{validation.mlfb}</strong><span className="proposal-status">{statusLabel(validation.status)}</span></div>
         <p>{validation.verification_scope}</p>
