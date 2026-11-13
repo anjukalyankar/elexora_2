@@ -134,3 +134,28 @@ button:disabled{opacity:.62;cursor:wait}
 
 /* Safe bulk Excel intake: preview, validation and pending-only submission. */
 .bulk-upload-module{display:flex;flex-direction:column;gap:18px}.bulk-upload-panel{display:flex;flex-direction:column;gap:15px;padding:18px;border:1px solid #dce6f0;border-radius:14px;background:#fbfdff}.bulk-upload-panel p{margin:7px 0;color:#34516d;font-size:12px;overflow-wrap:anywhere}.bulk-upload-panel small,.bulk-upload-module>small{color:#71839b;font-size:11px}.bulk-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.bulk-summary>div{display:flex;flex-direction:column;gap:5px;padding:14px;border:1px solid #e2e9f3;border-radius:12px;background:#f5f8fc}.bulk-summary strong{font-size:23px;color:#163d5d}.bulk-summary span{font-size:11px;color:#63758a}.bulk-validation{display:flex;flex-direction:column;gap:7px;padding:14px;border-radius:12px;font-size:12px;line-height:1.5}.bulk-validation.error{background:#fff0f0;border:1px solid #ffd1d1;color:#9c2b2b}.bulk-validation.warning{background:#fff8e8;border:1px solid #f3d38b;color:#805314}.bulk-upload-module .history-scroll{max-height:440px}.bulk-upload-module .history-table{min-width:1000px}@media(max-width:700px){.bulk-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* Admin Selection Chart & MLFB module. This UI only manages chart-source records. */
+.admin-mlfb-module{display:flex;flex-direction:column;gap:20px}
+.admin-mlfb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.admin-mlfb-panel,.admin-mlfb-preview,.admin-mlfb-validator{display:flex;flex-direction:column;gap:13px;padding:18px;border:1px solid #dce6f0;border-radius:14px;background:#fff;min-width:0}
+.admin-mlfb-panel h3,.admin-mlfb-validator h3,.admin-mlfb-preview h3{margin:0;color:#183b59}
+.admin-mlfb-panel p,.admin-mlfb-validator>p,.admin-mlfb-preview>p{font-size:12px;line-height:1.55;color:#66788e;margin:0}
+.admin-mlfb-panel>label,.admin-mlfb-validate-row>label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:700;color:#52657b}
+.admin-mlfb-panel input:not([type=file]),.admin-mlfb-panel select,.admin-mlfb-validate-row input{width:100%;padding:10px;border:1px solid #d5dfeb;border-radius:8px;font:inherit;color:#20364e;background:#fff}
+.admin-mlfb-chart-meta{display:flex;flex-direction:column;gap:5px;padding:12px;border-radius:9px;background:#f4f7fb;font-size:12px;overflow-wrap:anywhere}
+.admin-mlfb-chart-meta span,.admin-mlfb-chart-meta small{color:#71839b;font-size:11px}
+.admin-mlfb-preview details,.admin-mlfb-result details{border:1px solid #e2e9f3;border-radius:9px;padding:12px}
+.admin-mlfb-preview summary,.admin-mlfb-result summary{cursor:pointer;font-size:12px;font-weight:700;color:#29425f}
+.admin-mlfb-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;background:#f7f9fc;border-radius:8px;padding:12px;font:11px/1.5 ui-monospace,monospace}
+.admin-mlfb-candidates{display:flex;flex-direction:column;gap:9px;font-size:12px}
+.admin-mlfb-candidates>div{display:flex;gap:7px;flex-wrap:wrap}
+.admin-mlfb-candidates button{font-family:ui-monospace,monospace}
+.admin-mlfb-validate-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+.admin-mlfb-result{display:flex;flex-direction:column;gap:12px;padding:15px;border:1px solid #dce6f0;border-radius:12px;background:#fbfdff;min-width:0}
+.admin-mlfb-result>p{font-size:11px;line-height:1.5;color:#66788e;overflow-wrap:anywhere}
+.admin-mlfb-check{display:grid;grid-template-columns:minmax(110px,1fr) auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid #edf0f4;font-size:11px}
+.admin-mlfb-check span{text-transform:capitalize;color:#52657b}
+.admin-mlfb-check small{grid-column:1/-1;color:#71839b;overflow-wrap:anywhere}
+@media(max-width:760px){.admin-mlfb-grid{grid-template-columns:1fr}.admin-mlfb-validate-row{grid-template-columns:1fr}.admin-mlfb-module .bomhead{align-items:flex-start;flex-direction:column}}
