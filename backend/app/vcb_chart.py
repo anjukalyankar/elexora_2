@@ -278,10 +278,15 @@ def decode_3ah3_mlfb(mlfb, msld_text=""):
     add(10, "Closing-release voltage", pos[10], _3AH3_VOLTAGE_10_11)
     add(11, "1st shunt-release voltage", pos[11], _3AH3_VOLTAGE_10_11)
 
-    if pos[9] == "E":
+    if pos[9] in {"E", "W", "X"}:
+        # E is the standard 2nd shunt release (L); W/X add the fast-acting
+        # variant while retaining the same position-12 voltage code table.
         add(12, "2nd shunt release (L), 3AY1510Y voltage", pos[12], _3AH3_POS12_SHUNT_L)
     elif pos[9] in {"B", "H", "D"}:
         add(12, "2nd shunt release (I), fast-acting 3AX1101 voltage", pos[12], _3AH3_POS12_SHUNT_I_FAST)
+    elif pos[12] == "A":
+        # These position-9 options do not specify a 2nd shunt release.
+        add(12, "2nd shunt release", pos[12], {"A": "Without second shunt release"})
     else:
         decoded.append({"position": 12, "code": pos[12], "item": "2nd release voltage", "decoded": "Release type must be confirmed from position 9", "status": "review_required"})
         warnings.append(f"Position 12 code {pos[12]} cannot be decoded independently of the release type selected at position 9.")
