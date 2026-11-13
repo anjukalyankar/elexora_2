@@ -176,6 +176,16 @@ class BuildMlfbRequest(BaseModel):
     msld_text: str = Field(default="", max_length=100_000)
 
 
+class SaveChartMappingRequest(BaseModel):
+    mapping: dict[str, Any]
+
+
+class BuildFromChartRequest(BaseModel):
+    chart_id: int
+    description: str = Field(default="", max_length=20_000)
+    msld_text: str = Field(default="", max_length=100_000)
+
+
 def build_admin_selection_chart_router(db, require_admin):
     router = APIRouter(prefix="/api/admin", tags=["Admin Selection Charts"])
 
