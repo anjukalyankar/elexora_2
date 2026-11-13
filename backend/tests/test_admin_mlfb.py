@@ -5,7 +5,7 @@ import fitz
 from backend.app.admin_mlfb import _extract_pdf
 
 from backend.app.admin_mlfb import extract_candidate_mlfbs, normalize_mlfb
-from backend.app.vcb_chart import decode_3ah3_mlfb
+from backend.app.vcb_chart import build_3ah3_q10_spec, decode_3ah3_mlfb
 
 
 class TestAdminMlfbHelpers(unittest.TestCase):
@@ -91,6 +91,23 @@ class TestAdminMlfbHelpers(unittest.TestCase):
         )
         self.assertIn(result["status"], {"mismatch", "decoded_with_warnings"})
         self.assertTrue(result["checks"])
+
+    def test_3ah3_q10_builder_output_decodes_without_position_warnings(self):
+        lines, validation = build_3ah3_q10_spec(
+            {
+                "designation": "Q10",
+                "description": (
+                    "SIEMENS 3AH3 11kV 1250A 31.5kA/3Sec "
+                    "12NO + 12NC 64-way plug MOTOR: 110V DC "
+                    "C.C: 110V DC T.C: 110V DC"
+                ),
+            }
+        )
+        self.assertEqual(validation["mlfb"], "3AH3-1152-AEEA-AEF2")
+        decoded = decode_3ah3_mlfb(validation["mlfb"])
+        self.assertEqual(decoded["status"], "decoded")
+        self.assertEqual(decoded["warnings"], [])
+        self.assertIn("MLFB NO. : 3AH3-1152-AEEA-AEF2", lines)
 
     def test_3ah3_decoder_rejects_invalid_structure(self):
         result = decode_3ah3_mlfb("3AH3-3152-EFFW")
