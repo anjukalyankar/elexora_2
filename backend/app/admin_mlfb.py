@@ -17,6 +17,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from .generic_mlfb import build_from_chart_mapping, validate_mapping_config
+
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_EXTRACTED_TEXT = 500_000
 MAX_CANDIDATES = 500
@@ -196,6 +198,9 @@ def build_admin_selection_chart_router(db, require_admin):
                 )
             """)
             conn.execute("ALTER TABLE admin_selection_charts ADD COLUMN IF NOT EXISTS source_file BYTEA")
+            conn.execute("ALTER TABLE admin_selection_charts ADD COLUMN IF NOT EXISTS mapping_config JSONB")
+            conn.execute("ALTER TABLE admin_selection_charts ADD COLUMN IF NOT EXISTS mapping_approved_by TEXT")
+            conn.execute("ALTER TABLE admin_selection_charts ADD COLUMN IF NOT EXISTS mapping_approved_at TIMESTAMPTZ")
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_admin_selection_charts_family_created
                 ON admin_selection_charts(equipment_family, created_at DESC)
