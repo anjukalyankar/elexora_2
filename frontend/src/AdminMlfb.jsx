@@ -15,6 +15,10 @@ export default function AdminMlfb({ api }) {
   const [mlfb, setMlfb] = useState('');
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState(null);
+  const [buildDescription, setBuildDescription] = useState('');
+  const [buildMsldText, setBuildMsldText] = useState('');
+  const [buildResult, setBuildResult] = useState(null);
+  const [building, setBuilding] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -138,6 +142,35 @@ export default function AdminMlfb({ api }) {
     }
   }
 
+  async function buildMlfb() {
+    if (!buildDescription.trim() && !buildMsldText.trim()) {
+      setError('Paste the Q10 equipment description or its MSLD text before building.');
+      return;
+    }
+    setBuilding(true);
+    setError('');
+    setBuildResult(null);
+    try {
+      const response = await fetch(api + '/api/admin/mlfb/build', {
+        method: 'POST',
+        headers: { ...headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          equipment_family: '3AH3',
+          designation: 'Q10',
+          description: buildDescription,
+          msld_text: buildMsldText
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.detail || 'MLFB build failed.');
+      setBuildResult(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBuilding(false);
+    }
+  }
+
   const statusLabel = value => String(value || 'review_required').replaceAll('_', ' ');
 
   return <section className="card admin-mlfb-module">
@@ -208,8 +241,26 @@ export default function AdminMlfb({ api }) {
       <p>Saving stores a versioned source record and extraction metadata only. It does not publish or alter the live BOM master data.</p>
     </div>}
 
+    <div className="admin-mlfb-validator admin-mlfb-builder">
+      <h3>3. MLFB builder — Siemens Q10 / 3AH3</h3>
+      <p>Uses the existing deterministic 3AH3 selection-chart mapping. Enter the extracted Q10 row and continuation text; unknown chart options will block MLFB generation instead of guessing.</p>
+      <label>Q10 equipment row / description
+        <textarea rows="3" value={buildDescription} onChange={event => setBuildDescription(event.target.value)} placeholder="11kV, 3AH3, 1250A, 31.5kA/3Sec, 12NO + 12NC, 64 way plug…"/>
+      </label>
+      <label>MSLD continuation text (motor / closing coil / trip coil)
+        <textarea rows="3" value={buildMsldText} onChange={event => setBuildMsldText(event.target.value)} placeholder="MOTOR: 110V DC, C.C: 110V DC, T.C: 110V DC"/>
+      </label>
+      <div className="master-actions"><button onClick={buildMlfb} disabled={building}>{building ? 'Building…' : 'Build Q10 MLFB preview'}</button><button type="button" className="secondary-button" onClick={() => {setBuildDescription('');setBuildMsldText('');setBuildResult(null);}}>Clear</button></div>
+      {buildResult && <div className="admin-mlfb-result">
+        <div className="bomhead"><strong>Generated MLFB: {buildResult.mlfb || 'Not generated'}</strong><span className="proposal-status">{statusLabel(buildResult.status)}</span></div>
+        <pre>{(buildResult.description_lines || []).join('\n')}</pre>
+        {buildResult.validation?.warnings?.map((warning, index) => <div className="bulk-validation warning" key={index}>{warning}</div>)}
+        <p>{buildResult.verification_note}</p>
+      </div>}
+    </div>
+
     <div className="admin-mlfb-validator">
-      <h3>3. MLFB validation</h3>
+      <h3>4. MLFB validation</h3>
       <p>Validation reuses the existing 7SJ66 decoder where applicable. Other families are checked against extracted chart candidates and receive a review warning when no exact candidate is found.</p>
       <div className="admin-mlfb-validate-row">
         <label>MLFB<input value={mlfb} onChange={event => setMlfb(event.target.value)} placeholder="Enter or select an MLFB"/></label>
