@@ -69,6 +69,21 @@ class TestAdminMlfbHelpers(unittest.TestCase):
         self.assertIn("64-pin socket", by_position[15]["decoded"])
         self.assertIn("50 Hz", by_position[16]["decoded"])
 
+    def test_3ah3_position_12_decodes_fast_acting_shunt_l_options(self):
+        for option in ("W", "X"):
+            with self.subTest(position_9=option):
+                result = decode_3ah3_mlfb(f"3AH3-1152-{option}EEW-AEF2")
+                position_12 = next(item for item in result["decoded_positions"] if item["position"] == 12)
+                self.assertEqual(position_12["decoded"], "220 V DC")
+                self.assertEqual(position_12["status"], "decoded")
+
+    def test_3ah3_position_12_without_second_shunt_is_not_flagged(self):
+        result = decode_3ah3_mlfb("3AH3-1152-AEEA-AEF2")
+        position_12 = next(item for item in result["decoded_positions"] if item["position"] == 12)
+        self.assertEqual(position_12["decoded"], "Without second shunt release")
+        self.assertEqual(position_12["status"], "decoded")
+        self.assertEqual(result["status"], "decoded")
+
     def test_3ah3_decoder_reports_msld_mismatches(self):
         result = decode_3ah3_mlfb(
             "3AH3-3152-EFFW-AFF2",
