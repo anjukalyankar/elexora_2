@@ -166,3 +166,10 @@ button:disabled{opacity:.62;cursor:wait}
 
 .admin-mlfb-msld-input{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:700;color:#52657b}
 .admin-mlfb-msld-input textarea{width:100%;min-height:72px;padding:10px;border:1px solid #d5dfeb;border-radius:8px;font:inherit;font-size:12px;color:#20364e;resize:vertical;background:#fff}
+
+.admin-mlfb-position-table{max-width:100%;overflow-x:auto;margin-top:10px;border:1px solid #e1e8f0;border-radius:9px}
+.admin-mlfb-position-table table{width:100%;border-collapse:collapse;font-size:11px;min-width:700px}
+.admin-mlfb-position-table th,.admin-mlfb-position-table td{padding:9px 10px;text-align:left;vertical-align:top;border-bottom:1px solid #edf1f5}
+.admin-mlfb-position-table th{background:#f4f7fb;color:#52657b;font-weight:700}
+.admin-mlfb-position-table td{color:#344b64}
+.admin-mlfb-position-table code{font-size:11px;font-weight:700}
