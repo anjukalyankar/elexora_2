@@ -255,6 +255,16 @@ export default function AdminMlfb({ api }) {
       {buildResult && <div className="admin-mlfb-result">
         <div className="bomhead"><strong>Generated MLFB: {buildResult.mlfb || 'Not generated'}</strong><span className="proposal-status">{statusLabel(buildResult.status)}</span></div>
         <pre>{(buildResult.description_lines || []).join('\n')}</pre>
+        {buildResult.decoded_positions?.length > 0 && <details open>
+          <summary>Automatic 3AH3 MLFB position decoding</summary>
+          <div className="admin-mlfb-position-table">
+            <table><thead><tr><th>Position</th><th>Code</th><th>Parameter</th><th>Decoded chart meaning</th><th>Status</th></tr></thead>
+              <tbody>{buildResult.decoded_positions.map((item, index) => <tr key={index}><td>{item.position}</td><td><code>{item.code}</code></td><td>{item.item}</td><td>{item.decoded}</td><td>{item.status}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </details>}
+        {buildResult.position_validation?.errors?.map((warning, index) => <div className="bulk-validation error" key={'pos-e-'+index}>{warning}</div>)}
+        {buildResult.position_validation?.warnings?.map((warning, index) => <div className="bulk-validation warning" key={'pos-w-'+index}>{warning}</div>)}
         {buildResult.validation?.warnings?.map((warning, index) => <div className="bulk-validation warning" key={index}>{warning}</div>)}
         <p>{buildResult.verification_note}</p>
       </div>}
@@ -276,6 +286,11 @@ export default function AdminMlfb({ api }) {
         {validation.checks?.length > 0 && <div><strong>Checks</strong>{validation.checks.map((item, index) => <div className="admin-mlfb-check" key={index}><b>{item.item}</b><span>{item.status}</span><small>{item.detail}</small></div>)}</div>}
         {validation.errors?.map((item, index) => <div className="bulk-validation error" key={index}>{item}</div>)}
         {validation.warnings?.map((item, index) => <div className="bulk-validation warning" key={index}>{item}</div>)}
+        {validation.decoder?.decoded_positions?.length > 0 && <details open><summary>Automatic position-by-position decoding</summary>
+          <div className="admin-mlfb-position-table"><table><thead><tr><th>Position</th><th>Code</th><th>Parameter</th><th>Decoded chart meaning</th><th>Status</th></tr></thead>
+            <tbody>{validation.decoder.decoded_positions.map((item, index) => <tr key={index}><td>{item.position}</td><td><code>{item.code}</code></td><td>{item.item}</td><td>{item.decoded}</td><td>{item.status}</td></tr>)}</tbody>
+          </table></div>
+        </details>}
         {validation.decoder?.position_validation?.checks?.length > 0 && <details><summary>7SJ66 position-by-position chart checks</summary>
           {validation.decoder.position_validation.checks.map((item, index) => <div className="admin-mlfb-check" key={index}><b>{item.item}</b><span>{item.status}</span><small>{item.detail}</small></div>)}
         </details>}
