@@ -7,7 +7,7 @@ import unittest
 
 import fitz
 import psycopg
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
@@ -31,8 +31,13 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
             conn.execute("DROP TABLE IF EXISTS admin_selection_charts")
             conn.commit()
 
+        def require_admin(authorization: str = Header(default="")):
+            if authorization != "Bearer ci-admin-token":
+                raise HTTPException(status_code=401, detail="Admin access required for this test.")
+            return "ci-admin"
+
         app = FastAPI()
-        app.include_router(build_admin_selection_chart_router(cls.db, lambda: "ci-admin"))
+        app.include_router(build_admin_selection_chart_router(cls.db, require_admin))
         cls.client_context = TestClient(app)
         cls.client = cls.client_context.__enter__()
 
@@ -44,7 +49,12 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
             conn.execute("DROP TABLE IF EXISTS admin_selection_charts")
             conn.commit()
 
+    def test_admin_routes_reject_unauthenticated_requests(self):
+        response = self.client.get("/api/admin/selection-charts")
+        self.assertEqual(response.status_code, 401, response.text)
+
     def test_upload_list_download_validate_and_audit(self):
+        headers = {"Authorization": "Bearer ci-admin-token"}
         pdf = fitz.open()
         page = pdf.new_page()
         page.insert_text((60, 100), "Siemens 3AH3 selection chart MLFB 3AH3-3152-EFFW-AFF2")
@@ -55,16 +65,17 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
             "/api/admin/selection-charts",
             data={"name": "CI 3AH3 chart", "equipment_family": "3AH3"},
             files={"file": ("3AH3-ci.pdf", payload, "application/pdf")},
+            headers=headers,
         )
         self.assertEqual(uploaded.status_code, 200, uploaded.text)
         chart = uploaded.json()["chart"]
         chart_id = chart["id"]
 
-        listed = self.client.get("/api/admin/selection-charts")
+        listed = self.client.get("/api/admin/selection-charts", headers=headers)
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertTrue(any(item["id"] == chart_id for item in listed.json()["charts"]))
 
-        downloaded = self.client.get(f"/api/admin/selection-charts/{chart_id}/download")
+        downloaded = self.client.get(f"/api/admin/selection-charts/{chart_id}/download", headers=headers)
         self.assertEqual(downloaded.status_code, 200, downloaded.text)
         self.assertEqual(downloaded.content, payload)
 
@@ -75,6 +86,7 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
                 "chart_id": chart_id,
                 "equipment_family": "3AH3",
             },
+            headers=headers,
         )
         self.assertEqual(validated.status_code, 200, validated.text)
         result = validated.json()
