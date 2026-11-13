@@ -404,6 +404,31 @@ def build_admin_selection_chart_router(db, require_admin):
             conn.commit()
         return {"chart_id": chart_id, "mapping_configured": True, "approved_by": user, "position_count": len(config["positions"])}
 
+    @router.post("/mlfb/build-from-chart")
+    def build_mlfb_from_chart(payload: BuildFromChartRequest, user: str = Depends(require_admin)):
+        ensure_tables()
+        with db() as conn:
+            chart = conn.execute(
+                "SELECT id, name, equipment_family, mapping_config, mapping_approved_by FROM admin_selection_charts WHERE id=%s",
+                (payload.chart_id,),
+            ).fetchone()
+        if not chart:
+            raise HTTPException(status_code=404, detail="Selection chart not found.")
+        if not chart.get("mapping_config") or not chart.get("mapping_approved_by"):
+            raise HTTPException(status_code=400, detail="This chart has no administrator-reviewed position mapping. Configure and save its mapping first.")
+        try:
+            result = build_from_chart_mapping(chart["mapping_config"], payload.msld_text, payload.description)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO admin_selection_chart_audit(chart_id, action, actor, details) VALUES (%s,'mlfb_built_from_chart',%s,%s::jsonb)",
+                (payload.chart_id, user, json.dumps({"equipment_family": chart["equipment_family"], "status": result["status"], "mlfb_generated": bool(result["mlfb"])})),
+            )
+            conn.commit()
+        result.update({"chart_id": chart["id"], "chart_name": chart["name"], "equipment_family": chart["equipment_family"], "mapping_approved_by": chart["mapping_approved_by"]})
+        return result
+
     @router.post("/mlfb/build")
     def build_mlfb(payload: BuildMlfbRequest, user: str = Depends(require_admin)):
         family = payload.equipment_family.strip().upper().replace(" ", "")
