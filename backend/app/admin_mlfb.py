@@ -144,6 +144,7 @@ class ValidateMlfbRequest(BaseModel):
     mlfb: str = Field(min_length=3, max_length=100)
     chart_id: int | None = None
     equipment_family: str | None = Field(default=None, max_length=80)
+    msld_text: str = Field(default="", max_length=100_000)
 
 class BuildMlfbRequest(BaseModel):
     equipment_family: str = Field(min_length=1, max_length=80)
@@ -404,7 +405,7 @@ def build_admin_selection_chart_router(db, require_admin):
         normalized_family = family.casefold().replace(" ", "")
         if mlfb.startswith("7SJ66"):
             from .relay_nlp import analyze_7sj66
-            analysis = analyze_7sj66(mlfb)
+            analysis = analyze_7sj66(mlfb + "\n" + payload.msld_text)
             validation = analysis.get("validation", {})
             result["decoder"] = {
                 "fields": analysis.get("fields", {}),
