@@ -66,20 +66,41 @@ def _extract_pdf(content: bytes) -> dict[str, Any]:
         document.close()
         raise HTTPException(status_code=413, detail="PDF exceeds the 300-page extraction limit.")
     page_text: list[str] = []
-    for index, page in enumerate(document):
+    page_objects = list(document)
+    for index, page in enumerate(page_objects):
         if sum(len(item) for item in page_text) >= MAX_EXTRACTED_TEXT:
             break
         page_text.append(f"\n--- PAGE {index + 1} ---\n" + page.get_text("text"))
     page_count = document.page_count
-    document.close()
     text = "\n".join(page_text)[:MAX_EXTRACTED_TEXT]
+    warnings: list[str] = []
+    # Scanned/image-only charts need OCR. Use PyMuPDF's Tesseract bridge only
+    # when the selectable-text layer is absent or clearly too small to be useful.
+    if len(re.sub(r"\s+", "", text)) < 80:
+        ocr_pages: list[str] = []
+        try:
+            for index, page in enumerate(page_objects):
+                if sum(len(item) for item in ocr_pages) >= MAX_EXTRACTED_TEXT:
+                    break
+                text_page = page.get_textpage_ocr(language="eng", dpi=250, full=True)
+                recognized = page.get_text("text", textpage=text_page)
+                ocr_pages.append(f"\n--- PAGE {index + 1} (OCR) ---\n" + recognized)
+            ocr_text = "\n".join(ocr_pages)[:MAX_EXTRACTED_TEXT]
+            if len(re.sub(r"\s+", "", ocr_text)) > len(re.sub(r"\s+", "", text)):
+                text = ocr_text
+                warnings.append("OCR was used because the PDF had no useful selectable-text layer. Review OCR output against the original chart before configuring position maps.")
+            else:
+                warnings.append("The PDF appears scanned, but OCR did not recover useful text. Review the original page image manually.")
+        except Exception as exc:
+            warnings.append("OCR could not run. Install the Tesseract OCR system package and verify that English language data is available. Details: " + str(exc)[:240])
+    document.close()
     return {
         "source_type": "pdf",
         "page_count": page_count,
         "sheet_count": 0,
         "rows": [],
         "text": text,
-        "warnings": [] if text.strip() else ["No selectable text was found. This PDF may be scanned; OCR is not performed automatically."],
+        "warnings": warnings,
     }
 
 
