@@ -22,6 +22,8 @@ MAX_EXTRACTED_TEXT = 500_000
 MAX_CANDIDATES = 500
 MAX_EXCEL_ROWS = 2_000
 MAX_EXCEL_COLUMNS = 80
+MAX_STORED_CHART_BYTES = 200 * 1024 * 1024
+MAX_CHART_RECORDS = 100
 
 # Candidate MLFBs must contain digits and at least one explicit separator.
 # This is deliberately a candidate extractor, not a universal MLFB grammar.
@@ -285,6 +287,15 @@ def build_admin_selection_chart_router(db, require_admin):
             raise HTTPException(status_code=413, detail="Extracted chart structure exceeds the 2 MB storage limit.")
         digest = hashlib.sha256(content).hexdigest()
         with db() as conn:
+            usage = conn.execute("""
+                SELECT COUNT(*) AS chart_count,
+                       COALESCE(SUM(octet_length(source_file)), 0) AS stored_bytes
+                FROM admin_selection_charts
+            """).fetchone()
+            if usage["chart_count"] >= MAX_CHART_RECORDS:
+                raise HTTPException(status_code=413, detail=f"The chart library is limited to {MAX_CHART_RECORDS} saved source files. Remove obsolete charts before adding more.")
+            if usage["stored_bytes"] + len(content) > MAX_STORED_CHART_BYTES:
+                raise HTTPException(status_code=413, detail="The chart library has reached its 200 MB storage allowance. Remove obsolete charts before adding more.")
             row = conn.execute("""
                 INSERT INTO admin_selection_charts
                     (name, equipment_family, source_filename, source_type, source_sha256,
@@ -386,14 +397,14 @@ def build_admin_selection_chart_router(db, require_admin):
                 result["status"] = "decoded_chart_review_required"
                 result["warnings"].append("The MLFB decoded against ELEXORA's built-in 7SJ66 chart map but was not found as an exact candidate string in the selected uploaded chart. Review the source document.")
         elif mlfb.startswith("3AH3"):
-            if re.fullmatch(r"3AH3-[A-Z0-9]{4}-[A-Z0-9]{4}", mlfb):
-                result["checks"].append({"item": "3AH3 MLFB structure", "status": "matched", "detail": "The code matches the supported ELEXORA 3AH3 grouped structure."})
+            if re.fullmatch(r"3AH3-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", mlfb):
+                result["checks"].append({"item": "3AH3 MLFB structure", "status": "matched", "detail": "The code matches the supported ELEXORA 3AH3-XXXX-XXXX-XXXX grouped structure."})
                 result["status"] = "candidate_found" if candidate_match else "structure_only_review_required"
                 if not candidate_match:
                     result["warnings"].append("The MLFB structure is recognized, but an exact candidate was not found in the selected chart. Confirm every position against the 3AH3 selection chart.")
             else:
                 result["status"] = "format_or_chart_mismatch"
-                result["errors"].append("The MLFB does not match the supported 3AH3-XXXX-XXXX structure.")
+                result["errors"].append("The MLFB does not match the supported 3AH3-XXXX-XXXX-XXXX structure.")
         elif chart:
             if candidate_match:
                 result["status"] = "candidate_found"
