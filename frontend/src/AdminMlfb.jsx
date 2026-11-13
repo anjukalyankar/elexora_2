@@ -19,6 +19,12 @@ export default function AdminMlfb({ api }) {
   const [buildDescription, setBuildDescription] = useState('');
   const [buildMsldText, setBuildMsldText] = useState('');
   const [buildResult, setBuildResult] = useState(null);
+  const [genericMapping, setGenericMapping] = useState('');
+  const [genericDescription, setGenericDescription] = useState('');
+  const [genericMsld, setGenericMsld] = useState('');
+  const [genericResult, setGenericResult] = useState(null);
+  const [savingMapping, setSavingMapping] = useState(false);
+  const [buildingGeneric, setBuildingGeneric] = useState(false);
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -172,6 +178,41 @@ export default function AdminMlfb({ api }) {
     }
   }
 
+  async function saveGenericMapping() {
+    if (!selectedChart) { setError('Select a saved chart first.'); return; }
+    let mapping;
+    try { mapping = JSON.parse(genericMapping); }
+    catch { setError('Mapping must be valid JSON.'); return; }
+    setSavingMapping(true); setError(''); setMessage(''); setGenericResult(null);
+    try {
+      const response = await fetch(api + '/api/admin/selection-charts/' + selectedChart + '/mapping', {
+        method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapping })
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.detail || 'Could not save chart mapping.');
+      setMessage('Reviewed chart mapping saved. You can now build MLFBs from this chart.');
+      await loadCharts();
+    } catch (err) { setError(err.message); }
+    finally { setSavingMapping(false); }
+  }
+
+  async function buildFromSavedChart() {
+    if (!selectedChart) { setError('Select a saved chart first.'); return; }
+    if (!genericDescription.trim() && !genericMsld.trim()) { setError('Paste the equipment description or MSLD text.'); return; }
+    setBuildingGeneric(true); setError(''); setGenericResult(null);
+    try {
+      const response = await fetch(api + '/api/admin/mlfb/build-from-chart', {
+        method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chart_id: Number(selectedChart), description: genericDescription, msld_text: genericMsld })
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.detail || 'Chart-driven MLFB build failed.');
+      setGenericResult(data);
+    } catch (err) { setError(err.message); }
+    finally { setBuildingGeneric(false); }
+  }
+
   const statusLabel = value => String(value || 'review_required').replaceAll('_', ' ');
 
   return <section className="card admin-mlfb-module">
@@ -271,7 +312,28 @@ export default function AdminMlfb({ api }) {
     </div>
 
     <div className="admin-mlfb-validator">
-      <h3>4. MLFB validation</h3>
+    <div className="admin-mlfb-validator admin-mlfb-builder">
+      <h3>4. Configure a new chart family &amp; build MLFB</h3>
+      <p>Select a saved chart, review its original source, then define the position mapping below. Each option maps an MSLD text pattern to the exact code printed in the manufacturer chart. OCR extraction is never treated as an approved rule automatically.</p>
+      <label>Reviewed position mapping (JSON)
+        <textarea rows="12" value={genericMapping} onChange={event => setGenericMapping(event.target.value)} placeholder='{"format_template":"FAMILY-{P1}-{P2}","positions":[{"position":1,"label":"Rated current","required":true,"options":[{"match":"\\b630\\s*A\\b","code":"A","meaning":"630 A"}]},{"position":2,"label":"Auxiliary supply","required":true,"options":[{"match":"110\\s*V\\s*DC","code":"D","meaning":"110 V DC"}]}]}'/>
+      </label>
+      <p>Template placeholders such as {'{P1}'} must match the configured position numbers exactly. Patterns should be specific enough to avoid ambiguous matches.</p>
+      <button onClick={saveGenericMapping} disabled={savingMapping || !selectedChart}>{savingMapping ? 'Saving mapping…' : 'Save reviewed mapping for selected chart'}</button>
+      <label>Equipment description<textarea rows="2" value={genericDescription} onChange={event => setGenericDescription(event.target.value)} placeholder="Equipment description from MSLD…"/></label>
+      <label>MSLD extracted technical text<textarea rows="4" value={genericMsld} onChange={event => setGenericMsld(event.target.value)} placeholder="Paste the complete extracted MSLD text for this equipment…"/></label>
+      <button onClick={buildFromSavedChart} disabled={buildingGeneric || !selectedChart}>{buildingGeneric ? 'Building…' : 'Build MLFB using selected chart'}</button>
+      {genericResult && <div className="admin-mlfb-result">
+        <div className="bomhead"><strong>Generated MLFB: {genericResult.mlfb || 'Not generated'}</strong><span className="proposal-status">{statusLabel(genericResult.status)}</span></div>
+        <p>{genericResult.equipment_family} · Chart: {genericResult.chart_name} · Mapping approved by {genericResult.mapping_approved_by}</p>
+        <div className="admin-mlfb-position-table"><table><thead><tr><th>Position</th><th>Code</th><th>Parameter</th><th>Chart meaning</th><th>Status</th></tr></thead><tbody>{genericResult.decoded_positions?.map((item, index) => <tr key={index}><td>{item.position}</td><td><code>{item.code || '—'}</code></td><td>{item.item}</td><td>{item.decoded}</td><td>{item.status}</td></tr>)}</tbody></table></div>
+        {genericResult.errors?.map((item, index) => <div className="bulk-validation error" key={'ge'+index}>{item}</div>)}
+        {genericResult.warnings?.map((item, index) => <div className="bulk-validation warning" key={'gw'+index}>{item}</div>)}
+        <p>{genericResult.verification_note}</p>
+      </div>}
+    </div>
+
+      <h3>5. MLFB validation</h3>
       <p>Validation reuses the existing 7SJ66 decoder where applicable. Other families are checked against extracted chart candidates and receive a review warning when no exact candidate is found.</p>
       <div className="admin-mlfb-validate-row">
         <label>MLFB<input value={mlfb} onChange={event => setMlfb(event.target.value)} placeholder="Enter or select an MLFB"/></label>
