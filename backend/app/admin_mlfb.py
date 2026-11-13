@@ -13,7 +13,8 @@ import re
 from typing import Any
 
 import fitz
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
@@ -137,17 +138,6 @@ def _extract_xlsx(content: bytes) -> dict[str, Any]:
     }
 
 
-class SaveSelectionChartRequest(BaseModel):
-    name: str = Field(min_length=2, max_length=120)
-    equipment_family: str = Field(min_length=1, max_length=80)
-    source_filename: str = Field(min_length=1, max_length=180)
-    source_type: str = Field(pattern="^(pdf|xlsx)$")
-    source_sha256: str = Field(min_length=64, max_length=64)
-    extracted_text: str = Field(default="", max_length=MAX_EXTRACTED_TEXT)
-    extracted_data: dict[str, Any] = Field(default_factory=dict)
-    candidate_mlfbs: list[str] = Field(default_factory=list, max_length=MAX_CANDIDATES)
-
-
 class ValidateMlfbRequest(BaseModel):
     mlfb: str = Field(min_length=3, max_length=100)
     chart_id: int | None = None
@@ -167,6 +157,7 @@ def build_admin_selection_chart_router(db, require_admin):
                     source_filename TEXT NOT NULL,
                     source_type TEXT NOT NULL CHECK (source_type IN ('pdf','xlsx')),
                     source_sha256 TEXT NOT NULL,
+                    source_file BYTEA,
                     extracted_text TEXT NOT NULL DEFAULT '',
                     extracted_data JSONB NOT NULL DEFAULT '{}'::jsonb,
                     candidate_mlfbs JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -174,6 +165,7 @@ def build_admin_selection_chart_router(db, require_admin):
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            conn.execute("ALTER TABLE admin_selection_charts ADD COLUMN IF NOT EXISTS source_file BYTEA")
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_admin_selection_charts_family_created
                 ON admin_selection_charts(equipment_family, created_at DESC)
@@ -258,41 +250,83 @@ def build_admin_selection_chart_router(db, require_admin):
         }
 
     @router.post("/selection-charts")
-    def save_selection_chart(payload: SaveSelectionChartRequest, user: str = Depends(require_admin)):
+    async def save_selection_chart(
+        name: str = Form(...),
+        equipment_family: str = Form(...),
+        file: UploadFile = File(...),
+        user: str = Depends(require_admin),
+    ):
         ensure_tables()
-        candidates = list(dict.fromkeys(
-            str(item).strip()[:100] for item in payload.candidate_mlfbs if str(item).strip()
-        ))[:MAX_CANDIDATES]
-        extracted_data = payload.extracted_data or {}
-        encoded_data = json.dumps(extracted_data, ensure_ascii=False)
-        if len(encoded_data) > 2_000_000:
+        chart_name = name.strip()
+        family = equipment_family.strip()
+        if len(chart_name) < 2 or len(chart_name) > 120:
+            raise HTTPException(status_code=400, detail="Chart name must be 2-120 characters.")
+        if not family or len(family) > 80:
+            raise HTTPException(status_code=400, detail="Equipment family must be 1-80 characters.")
+        filename = (file.filename or "selection-chart").strip()
+        extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if extension not in ("pdf", "xlsx"):
+            raise HTTPException(status_code=400, detail="Upload a PDF or .xlsx selection chart.")
+        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        if not content:
+            raise HTTPException(status_code=400, detail="The uploaded selection chart is empty.")
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Selection-chart upload exceeds the 12 MB limit.")
+
+        extracted = _extract_pdf(content) if extension == "pdf" else _extract_xlsx(content)
+        candidates = extract_candidate_mlfbs(extracted["text"])
+        extracted_data = json.dumps({
+            "page_count": extracted["page_count"],
+            "sheet_count": extracted["sheet_count"],
+            "rows": extracted["rows"],
+            "warnings": extracted["warnings"],
+        }, ensure_ascii=False)
+        if len(extracted_data) > 2_000_000:
             raise HTTPException(status_code=413, detail="Extracted chart structure exceeds the 2 MB storage limit.")
+        digest = hashlib.sha256(content).hexdigest()
         with db() as conn:
             row = conn.execute("""
                 INSERT INTO admin_selection_charts
                     (name, equipment_family, source_filename, source_type, source_sha256,
-                     extracted_text, extracted_data, candidate_mlfbs, uploaded_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
+                     source_file, extracted_text, extracted_data, candidate_mlfbs, uploaded_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
                 RETURNING id, name, equipment_family, source_filename, source_type,
                           source_sha256, candidate_mlfbs, uploaded_by, created_at
             """, (
-                payload.name.strip(), payload.equipment_family.strip(),
-                payload.source_filename.strip(), payload.source_type,
-                payload.source_sha256.lower(), payload.extracted_text,
-                encoded_data, json.dumps(candidates), user,
+                chart_name, family, filename[:180], extension, digest,
+                content, extracted["text"], extracted_data,
+                json.dumps(candidates), user,
             )).fetchone()
             conn.execute("""
                 INSERT INTO admin_selection_chart_audit(chart_id, action, actor, details)
                 VALUES (%s,'chart_uploaded',%s,%s::jsonb)
             """, (row["id"], user, json.dumps({
-                "name": payload.name.strip(),
-                "equipment_family": payload.equipment_family.strip(),
-                "source_filename": payload.source_filename.strip(),
-                "candidate_count": len(candidates),
-                "source_sha256": payload.source_sha256.lower(),
+                "name": chart_name, "equipment_family": family,
+                "source_filename": filename[:180], "file_size": len(content),
+                "candidate_count": len(candidates), "source_sha256": digest,
             })))
             conn.commit()
-        return {"chart": row, "message": "Selection chart saved to the admin chart library. It has not changed the approved BOM master data."}
+        return {"chart": row, "message": "Original selection chart and extracted content saved to the admin library. The approved BOM master data remains unchanged."}
+
+    @router.get("/selection-charts/{chart_id}/download")
+    def download_selection_chart(chart_id: int, user: str = Depends(require_admin)):
+        ensure_tables()
+        with db() as conn:
+            row = conn.execute("""
+                SELECT source_filename, source_type, source_file
+                FROM admin_selection_charts WHERE id=%s
+            """, (chart_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Selection chart not found.")
+        if not row.get("source_file"):
+            raise HTTPException(status_code=404, detail="The original source file is unavailable for this chart.")
+        media_type = "application/pdf" if row["source_type"] == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", row["source_filename"]) or "selection-chart"
+        return Response(
+            content=bytes(row["source_file"]),
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+        )
 
     @router.post("/mlfb/validate")
     def validate_mlfb(payload: ValidateMlfbRequest, user: str = Depends(require_admin)):
