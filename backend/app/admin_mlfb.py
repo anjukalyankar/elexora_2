@@ -145,6 +145,12 @@ class ValidateMlfbRequest(BaseModel):
     chart_id: int | None = None
     equipment_family: str | None = Field(default=None, max_length=80)
 
+class BuildMlfbRequest(BaseModel):
+    equipment_family: str = Field(min_length=1, max_length=80)
+    designation: str = Field(default="Q10", max_length=40)
+    description: str = Field(default="", max_length=20_000)
+    msld_text: str = Field(default="", max_length=100_000)
+
 
 def build_admin_selection_chart_router(db, require_admin):
     router = APIRouter(prefix="/api/admin", tags=["Admin Selection Charts"])
@@ -338,6 +344,29 @@ def build_admin_selection_chart_router(db, require_admin):
             media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
         )
+
+    @router.post("/mlfb/build")
+    def build_mlfb(payload: BuildMlfbRequest, user: str = Depends(require_admin)):
+        family = payload.equipment_family.strip().upper().replace(" ", "")
+        if family not in {"3AH3", "3AH3VCB"}:
+            raise HTTPException(status_code=400, detail="The automated builder currently supports the ELEXORA Q10 / Siemens 3AH3 chart mapping only. Other families can be extracted and validated against uploaded chart candidates.")
+        from .vcb_chart import build_3ah3_q10_spec
+        lines, validation = build_3ah3_q10_spec(
+            {
+                "designation": payload.designation.strip() or "Q10",
+                "description": payload.description,
+            },
+            msld_text=payload.msld_text,
+        )
+        return {
+            "equipment_family": "3AH3",
+            "designation": payload.designation.strip() or "Q10",
+            "mlfb": validation.get("mlfb", ""),
+            "description_lines": lines,
+            "validation": validation,
+            "status": validation.get("validation_status", "incomplete_or_mismatch"),
+            "verification_note": "Uses the existing deterministic ELEXORA 3AH3 Q10 selection-chart mapping. A code is generated only when all required positions map; this admin preview does not modify BOM output or master data.",
+        }
 
     @router.post("/mlfb/validate")
     def validate_mlfb(payload: ValidateMlfbRequest, user: str = Depends(require_admin)):
