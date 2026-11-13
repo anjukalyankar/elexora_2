@@ -382,6 +382,28 @@ def build_admin_selection_chart_router(db, require_admin):
             headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
         )
 
+    @router.post("/selection-charts/{chart_id}/mapping")
+    def save_chart_mapping(chart_id: int, payload: SaveChartMappingRequest, user: str = Depends(require_admin)):
+        ensure_tables()
+        try:
+            config = validate_mapping_config(payload.mapping)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with db() as conn:
+            chart = conn.execute("SELECT id, equipment_family FROM admin_selection_charts WHERE id=%s", (chart_id,)).fetchone()
+            if not chart:
+                raise HTTPException(status_code=404, detail="Selection chart not found.")
+            conn.execute(
+                "UPDATE admin_selection_charts SET mapping_config=%s::jsonb, mapping_approved_by=%s, mapping_approved_at=NOW() WHERE id=%s",
+                (json.dumps(config), user, chart_id),
+            )
+            conn.execute(
+                "INSERT INTO admin_selection_chart_audit(chart_id, action, actor, details) VALUES (%s,'chart_mapping_approved',%s,%s::jsonb)",
+                (chart_id, user, json.dumps({"equipment_family": chart["equipment_family"], "position_count": len(config["positions"]), "format_template": config["format_template"]})),
+            )
+            conn.commit()
+        return {"chart_id": chart_id, "mapping_configured": True, "approved_by": user, "position_count": len(config["positions"])}
+
     @router.post("/mlfb/build")
     def build_mlfb(payload: BuildMlfbRequest, user: str = Depends(require_admin)):
         family = payload.equipment_family.strip().upper().replace(" ", "")
