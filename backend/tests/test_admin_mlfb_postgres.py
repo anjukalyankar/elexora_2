@@ -57,7 +57,7 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
         headers = {"Authorization": "Bearer ci-admin-token"}
         pdf = fitz.open()
         page = pdf.new_page()
-        page.insert_text((60, 100), "Siemens 3AH3 selection chart MLFB 3AH3-3152-EFFW-AFF2")
+        page.insert_text((60, 100), "Siemens 3AH3 selection chart for CI validation and position-code reference MLFB 3AH3-3152-EFFW-AFF2")
         payload = pdf.tobytes()
         pdf.close()
 
