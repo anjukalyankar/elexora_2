@@ -19,6 +19,7 @@ from fastapi import HTTPException, Depends, Header
 from pydantic import BaseModel
 from .relay_nlp import analyze_7sj66
 from .siemens_live import lookup_siemens_product
+from .admin_mlfb import build_admin_selection_chart_router
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
@@ -159,6 +160,7 @@ def require_super_admin(user: str = Depends(current_user)):
 
 app = FastAPI(title='ELEXORA 2 API', version='0.7.0')
 app.add_middleware(CORSMiddleware, allow_origins=['https://elexora-2-nine.vercel.app', 'http://localhost:5173'], allow_origin_regex=r'https://.*\.vercel\.app', allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
+app.include_router(build_admin_selection_chart_router(db, require_admin))
 REFERENCE_FEEDER_COLUMN = 'FEEDER TYPICAL'
 MASTER = {'CT':'CURRENT TRANSFORMER','PT':'POTENTIAL TRANSFORMER (DRAWOUT TYPE)','7SJ6611':'NUMERICAL PROTECTION RELAY','EM6400NG':'DIGITAL MF METER','AMMETER':'DIGITAL AMMETER WITH BUILT IN SEL. S/W','VOLTMETER':'DIGITAL VOLTMETER WITH BUILT IN SEL. S/W','MCB':'MINIATURE CIRCUIT BREAKER'}
 LED_MASTER_CACHE = None
