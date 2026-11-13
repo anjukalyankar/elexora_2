@@ -74,15 +74,12 @@ export default function AdminMlfb({ api }) {
     setError('');
     setMessage('');
     try {
+      const body = new FormData();
+      body.append('name', name);
+      body.append('equipment_family', family);
+      body.append('file', file);
       const response = await fetch(api + '/api/admin/selection-charts', {
-        method: 'POST',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name, equipment_family: family, source_filename: preview.source_filename,
-          source_type: preview.source_type, source_sha256: preview.source_sha256,
-          extracted_text: preview.extracted_text, extracted_data: preview.extracted_data,
-          candidate_mlfbs: preview.candidate_mlfbs || []
-        })
+        method: 'POST', headers: headers(), body
       });
       const data = await response.json();
       if (!response.ok) throw Error(data.detail || 'Could not save selection chart.');
@@ -95,6 +92,28 @@ export default function AdminMlfb({ api }) {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function downloadChart(chartId) {
+    setError('');
+    try {
+      const response = await fetch(api + '/api/admin/selection-charts/' + chartId + '/download', { headers: headers() });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw Error(data.detail || 'Could not download the original chart.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = selected?.source_filename || 'selection-chart';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -158,6 +177,7 @@ export default function AdminMlfb({ api }) {
             <strong>{selected.source_filename}</strong>
             <span>{selected.source_type.toUpperCase()} · {selected.candidate_mlfbs?.length || 0} extracted candidates</span>
             <small>Uploaded by {selected.uploaded_by} · {selected.created_at ? new Date(selected.created_at).toLocaleString() : '—'}</small>
+            <button type="button" className="secondary-button" onClick={() => downloadChart(selected.id)}>Download original chart</button>
           </div>}
         </> : <p>No charts saved yet. Upload and save the first chart to begin validation.</p>}
         <button className="secondary-button" onClick={loadCharts} disabled={loadingCharts}>Refresh chart library</button>
