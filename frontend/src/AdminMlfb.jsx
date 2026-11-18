@@ -400,7 +400,7 @@ export default function AdminMlfb({ api }) {
     <div className="admin-mlfb-validator">
     <div className="admin-mlfb-panel admin-mlfb-builder">
       <h3>4. AI-assisted chart learning &amp; approval lifecycle</h3>
-      <p>Creates a source-grounded interpretation draft. Current draft extraction is text-assisted and deliberately conservative; it does not claim visual AI understanding. Admin must complete and verify the position codes against the original chart.</p>
+      <p>Uses multimodal AI for PDF chart interpretation and extracted text for workbook input. AI suggestions are engineering drafts only; verify every position, code, dependency, note and source reference against the original chart before approval. If AI is unavailable, a conservative text-based fallback is used.</p>
       <div className="master-actions">
         <button onClick={interpretSelectedChart} disabled={learningBusy || !selectedChart}>Create interpretation draft</button>
         <button className="secondary-button" onClick={refreshLearningVersions} disabled={learningBusy || !selectedChart}>Refresh versions</button>
