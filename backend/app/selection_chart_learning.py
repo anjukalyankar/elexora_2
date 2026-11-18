@@ -119,13 +119,13 @@ def build_selection_chart_learning_router(db, require_admin):
             if draft is None:
                 positions = []
                 seen = set()
-                for match in re.finditer(r"(?im)^(?:position|pos\\.?|option\\s*position)\\s*(\\d{1,2})\\s*[:.-]?\\s*(.{0,120})$", source):
+                for match in re.finditer(r"(?im)^(?:position|pos\.?|option\s*position)\s*(\d{1,2})\s*[:.-]?\s*(.{0,120})$", source):
                     number = int(match.group(1))
                     if number < 1 or number > 32 or number in seen:
                         continue
                     seen.add(number)
                     positions.append({"position": number, "label": match.group(2).strip() or f"Position {number}", "required": True, "options": []})
-                draft = {"format_template":"","positions":positions,"source_notes":payload.notes,"interpretation":{"method":"source_text_assisted","status":"needs_manual_mapping","warnings":["AI interpretation was unavailable; this draft uses text pattern extraction only.","Populate code-to-meaning options and MLFB template from the original chart before approval."],"ai_error":ai_error,"source_sha256":chart["source_sha256"],"page_references":sorted(set(int(x) for x in re.findall(r"--- PAGE (\\d+)",source)))}}
+                draft = {"format_template":"","positions":positions,"source_notes":payload.notes,"interpretation":{"method":"source_text_assisted","status":"needs_manual_mapping","warnings":["AI interpretation was unavailable; this draft uses text pattern extraction only.","Populate code-to-meaning options and MLFB template from the original chart before approval."],"ai_error":ai_error,"source_sha256":chart["source_sha256"],"page_references":sorted(set(int(x) for x in re.findall(r"--- PAGE (\d+)",source)))}}
             draft.setdefault("source_notes",payload.notes)
             draft.setdefault("interpretation",{})
             draft["interpretation"]["source_sha256"]=chart["source_sha256"]
