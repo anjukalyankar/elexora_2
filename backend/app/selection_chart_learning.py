@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .generic_mlfb import build_from_chart_mapping, validate_mapping_config
+from .ai_chart_interpreter import interpret_chart_with_ai
 
 MAX_DRAFT_TEXT = 500_000
 
@@ -89,7 +90,7 @@ def build_selection_chart_learning_router(db, require_admin):
         ensure_tables()
 
     def chart_or_404(conn, chart_id):
-        chart = conn.execute("SELECT id,name,equipment_family,source_sha256,extracted_text,extracted_data FROM admin_selection_charts WHERE id=%s", (chart_id,)).fetchone()
+        chart = conn.execute("SELECT id,name,equipment_family,source_type,source_file,source_sha256,extracted_text,extracted_data FROM admin_selection_charts WHERE id=%s", (chart_id,)).fetchone()
         if not chart:
             raise HTTPException(status_code=404, detail="Selection chart not found.")
         return chart
@@ -117,18 +118,29 @@ def build_selection_chart_learning_router(db, require_admin):
                 seen.add(number)
                 label = match.group(2).strip() or f"Position {number}"
                 positions.append({"position": number, "label": label[:100], "required": True, "options": []})
-            draft = {
-                "format_template": "",
-                "positions": positions,
-                "source_notes": payload.notes,
-                "interpretation": {
-                    "method": "source_text_assisted",
-                    "status": "needs_manual_mapping",
-                    "warnings": ["This draft is based on extracted text patterns, not a multimodal AI interpretation of chart layout.", "Populate code-to-meaning options and the MLFB format template from the original chart before approval."],
-                    "source_sha256": chart["source_sha256"],
-                    "page_references": sorted(set(int(x) for x in re.findall(r"--- PAGE (\d+)", source))),
-                },
-            }
+            draft = None
+            ai_error = None
+            try:
+                draft = interpret_chart_with_ai(bytes(chart["source_file"] or b""), chart["source_type"], source, chart["name"], chart["equipment_family"])
+            except Exception as exc:
+                ai_error = str(exc)[:1000]
+            if draft is None:
+                draft = {
+                    "format_template": "",
+                    "positions": positions,
+                    "source_notes": payload.notes,
+                    "interpretation": {
+                        "method": "source_text_assisted",
+                        "status": "needs_manual_mapping",
+                        "warnings": ["AI interpretation unavailable; this draft uses conservative text-pattern extraction only.", "Populate code-to-meaning options and the MLFB format template from the original chart before approval."],
+                        "ai_error": ai_error,
+                        "source_sha256": chart["source_sha256"],
+                        "page_references": sorted(set(int(x) for x in re.findall(r"--- PAGE (\\d+)", source))),
+                    },
+                }
+            draft.setdefault("source_notes", payload.notes)
+            draft.setdefault("interpretation", {})
+            draft["interpretation"].update({"source_sha256": chart["source_sha256"], "status": "needs_manual_engineering_review"})
             row = conn.execute("SELECT COALESCE(MAX(version),0)+1 AS next_version FROM selection_chart_mapping_versions WHERE chart_id=%s", (chart_id,)).fetchone()
             version = int(row["next_version"])
             saved = conn.execute("""
