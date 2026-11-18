@@ -143,11 +143,12 @@ def build_selection_chart_learning_router(db, require_admin):
             draft["interpretation"].update({"source_sha256": chart["source_sha256"], "status": "needs_manual_engineering_review"})
             row = conn.execute("SELECT COALESCE(MAX(version),0)+1 AS next_version FROM selection_chart_mapping_versions WHERE chart_id=%s", (chart_id,)).fetchone()
             version = int(row["next_version"])
+            method = str(draft.get("interpretation", {}).get("method") or "source_text_assisted")
             saved = conn.execute("""
-                INSERT INTO selection_chart_mapping_versions(chart_id,version,mapping_config,status,source_sha256,created_by,review_note)
-                VALUES (%s,%s,%s::jsonb,'draft',%s,%s,%s)
+                INSERT INTO selection_chart_mapping_versions(chart_id,version,mapping_config,status,source_sha256,created_by,review_note,interpretation_method)
+                VALUES (%s,%s,%s::jsonb,'draft',%s,%s,%s,%s)
                 RETURNING id,version,status,created_at
-            """, (chart_id, version, json.dumps(draft), chart["source_sha256"], user, payload.notes)).fetchone()
+            """, (chart_id, version, json.dumps(draft), chart["source_sha256"], user, payload.notes, method)).fetchone()
             conn.commit()
         return {"chart_id": chart_id, "version": saved, "draft": draft, "message": "Draft created. It is not approved and cannot be used by production BOM."}
 
@@ -207,7 +208,9 @@ def build_selection_chart_learning_router(db, require_admin):
         ensure_tables()
         with db() as conn:
             version = version_or_404(conn, version_id)
-            if version["status"] not in ("mapping_approved", "testing", "production_approved"):
+            if version["status"] == "production_approved":
+                raise HTTPException(status_code=409, detail="Production-approved mappings are immutable. Create a new version for further tests.")
+            if version["status"] not in ("mapping_approved", "testing"):
                 raise HTTPException(status_code=409, detail="Mapping approval is required before test bench execution.")
             result = build_from_chart_mapping(version["mapping_config"],payload.msld_text,payload.description)
             conn.execute("INSERT INTO selection_chart_mapping_tests(version_id,actor,input_description,input_msld,result) VALUES (%s,%s,%s,%s,%s::jsonb)", (version_id,user,payload.description,payload.msld_text,json.dumps(result)))
@@ -232,9 +235,14 @@ def build_selection_chart_learning_router(db, require_admin):
                 raise HTTPException(status_code=409,detail="Mapping must be approved and tested before production approval.")
             if int(version["test_count"] or 0) < 1:
                 raise HTTPException(status_code=409,detail="Run at least one test-bench case before production approval.")
+            if version["last_test_status"] != "matched":
+                raise HTTPException(status_code=409,detail="The latest test must produce a complete MLFB match before production approval.")
             chart=chart_or_404(conn,version["chart_id"])
             if chart["source_sha256"] != version["source_sha256"]:
                 raise HTTPException(status_code=409,detail="Source chart has changed. Create and review a new mapping version.")
+            previous = conn.execute("SELECT version_id FROM selection_chart_active_mappings WHERE chart_id=%s", (version["chart_id"],)).fetchone()
+            if previous and previous["version_id"] != version_id:
+                conn.execute("UPDATE selection_chart_mapping_versions SET status='superseded' WHERE id=%s AND status='production_approved'", (previous["version_id"],))
             conn.execute("UPDATE selection_chart_mapping_versions SET status='production_approved',production_approved_by=%s,production_approved_at=NOW(),production_approval_note=%s WHERE id=%s",(user,payload.approval_note,version_id))
             conn.execute("INSERT INTO selection_chart_active_mappings(chart_id,version_id,activated_by) VALUES (%s,%s,%s) ON CONFLICT(chart_id) DO UPDATE SET version_id=EXCLUDED.version_id,activated_by=EXCLUDED.activated_by,activated_at=NOW()",(version["chart_id"],version_id,user))
             conn.execute("INSERT INTO admin_selection_chart_audit(chart_id,action,actor,details) VALUES (%s,'production_mapping_activated',%s,%s::jsonb)",(version["chart_id"],user,json.dumps({"version_id":version_id,"version":version["version"],"note":payload.approval_note})))
