@@ -1,8 +1,8 @@
 """Versioned selection-chart learning and approval lifecycle.
 
 AI interpretation is deliberately provider-agnostic. This first implementation
-creates a source-grounded review draft from extracted chart text; it does not
-pretend heuristics are an LLM and never promotes suggestions automatically.
+uses multimodal AI when configured, with a conservative text-only fallback;
+all generated mappings remain drafts until explicitly reviewed and approved.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def build_selection_chart_learning_router(db, require_admin):
         ensure_tables()
 
     def chart_or_404(conn, chart_id):
-        chart = conn.execute("SELECT id,name,equipment_family,source_sha256,extracted_text,extracted_data FROM admin_selection_charts WHERE id=%s", (chart_id,)).fetchone()
+        chart = conn.execute("SELECT id,name,equipment_family,source_sha256,source_file,source_type,extracted_text,extracted_data FROM admin_selection_charts WHERE id=%s", (chart_id,)).fetchone()
         if not chart:
             raise HTTPException(status_code=404, detail="Selection chart not found.")
         return chart
