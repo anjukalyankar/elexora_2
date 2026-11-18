@@ -106,38 +106,38 @@ def build_selection_chart_learning_router(db, require_admin):
         with db() as conn:
             chart = chart_or_404(conn, chart_id)
             source = str(chart.get("extracted_text") or "")[:MAX_DRAFT_TEXT]
-            # Source-grounded preliminary structure: recognize position headings
-            # and code/meaning lines, but preserve ambiguity as review warnings.
-            positions = []
-            seen = set()
-            for match in re.finditer(r"(?im)^(?:position|pos\.?|option\s*position)\s*(\d{1,2})\s*[:.-]?\s*(.{0,120})$", source):
-                number = int(match.group(1))
-                if number < 1 or number > 32 or number in seen:
-                    continue
-                seen.add(number)
-                label = match.group(2).strip() or f"Position {number}"
-                positions.append({"position": number, "label": label[:100], "required": True, "options": []})
-            draft = {
-                "format_template": "",
-                "positions": positions,
-                "source_notes": payload.notes,
-                "interpretation": {
-                    "method": "source_text_assisted",
-                    "status": "needs_manual_mapping",
-                    "warnings": ["This draft is based on extracted text patterns, not a multimodal AI interpretation of chart layout.", "Populate code-to-meaning options and the MLFB format template from the original chart before approval."],
-                    "source_sha256": chart["source_sha256"],
-                    "page_references": sorted(set(int(x) for x in re.findall(r"--- PAGE (\d+)", source))),
-                },
-            }
-            row = conn.execute("SELECT COALESCE(MAX(version),0)+1 AS next_version FROM selection_chart_mapping_versions WHERE chart_id=%s", (chart_id,)).fetchone()
-            version = int(row["next_version"])
-            saved = conn.execute("""
-                INSERT INTO selection_chart_mapping_versions(chart_id,version,mapping_config,status,source_sha256,created_by,review_note)
-                VALUES (%s,%s,%s::jsonb,'draft',%s,%s,%s)
+            source_bytes = bytes(chart.get("source_file") or b"")
+            source_type = str(chart.get("source_type") or "pdf")
+            draft = None
+            ai_error = None
+            if source_bytes:
+                try:
+                    from .ai_chart_interpreter import interpret_chart_with_ai
+                    draft = interpret_chart_with_ai(source_bytes, source_type, source, chart["name"], chart["equipment_family"])
+                except Exception as exc:
+                    ai_error = str(exc)[:1000]
+            if draft is None:
+                positions = []
+                seen = set()
+                for match in re.finditer(r"(?im)^(?:position|pos\\.?|option\\s*position)\\s*(\\d{1,2})\\s*[:.-]?\\s*(.{0,120})$", source):
+                    number = int(match.group(1))
+                    if number < 1 or number > 32 or number in seen:
+                        continue
+                    seen.add(number)
+                    positions.append({"position": number, "label": match.group(2).strip() or f"Position {number}", "required": True, "options": []})
+                draft = {"format_template":"","positions":positions,"source_notes":payload.notes,"interpretation":{"method":"source_text_assisted","status":"needs_manual_mapping","warnings":["AI interpretation was unavailable; this draft uses text pattern extraction only.","Populate code-to-meaning options and MLFB template from the original chart before approval."],"ai_error":ai_error,"source_sha256":chart["source_sha256"],"page_references":sorted(set(int(x) for x in re.findall(r"--- PAGE (\\d+)",source)))}}
+            draft.setdefault("source_notes",payload.notes)
+            draft.setdefault("interpretation",{})
+            draft["interpretation"]["source_sha256"]=chart["source_sha256"]
+            row=conn.execute("SELECT COALESCE(MAX(version),0)+1 AS next_version FROM selection_chart_mapping_versions WHERE chart_id=%s",(chart_id,)).fetchone()
+            version=int(row["next_version"])
+            saved=conn.execute("""
+                INSERT INTO selection_chart_mapping_versions(chart_id,version,mapping_config,status,source_sha256,created_by,review_note,interpretation_method)
+                VALUES (%s,%s,%s::jsonb,'draft',%s,%s,%s,%s)
                 RETURNING id,version,status,created_at
-            """, (chart_id, version, json.dumps(draft), chart["source_sha256"], user, payload.notes)).fetchone()
+            """,(chart_id,version,json.dumps(draft),chart["source_sha256"],user,payload.notes,draft.get("interpretation",{}).get("method","source_text_assisted"))).fetchone()
             conn.commit()
-        return {"chart_id": chart_id, "version": saved, "draft": draft, "message": "Draft created. It is not approved and cannot be used by production BOM."}
+        return {"chart_id":chart_id,"version":saved,"draft":draft,"message":"AI/source interpretation draft created. Engineering review required; not production-approved."}
 
     @router.get("/{chart_id}/versions")
     def list_versions(chart_id: int, user: str = Depends(require_admin)):
