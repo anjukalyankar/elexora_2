@@ -73,7 +73,12 @@ def validate_mapping_config(config: Any) -> dict[str, Any]:
     stripped = TOKEN_RE.sub("", template)
     if "{" in stripped or "}" in stripped:
         raise ValueError("format_template contains an unsupported placeholder.")
-    return {"format_template": template, "positions": [by_position[n] for n in sorted(by_position)]}
+    # Preserve reviewed engineering metadata and source evidence across versions.
+    cleaned = {"format_template": template, "positions": [by_position[n] for n in sorted(by_position)]}
+    for key in ("dependencies", "notes", "warnings", "source_references", "confidence", "source_notes", "interpretation"):
+        if key in config:
+            cleaned[key] = config[key]
+    return cleaned
 
 
 def build_from_chart_mapping(config: dict[str, Any], msld_text: str, description: str = "") -> dict[str, Any]:
