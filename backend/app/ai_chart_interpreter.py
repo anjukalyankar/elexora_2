@@ -15,7 +15,7 @@ def interpret_chart_with_ai(source_bytes: bytes, source_type: str, extracted_tex
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
-    model = os.getenv("SELECTION_CHART_AI_MODEL", "gpt-5.5")
+    model = os.getenv("SELECTION_CHART_AI_MODEL", "gpt-4.1")
     mime = "application/pdf" if source_type == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     data_url = f"data:{mime};base64," + base64.b64encode(source_bytes).decode("ascii")
     instructions = """You are an engineering document interpreter for Siemens and other industrial selection charts.
@@ -32,7 +32,7 @@ Capture every position, all codes, notes, footnotes, conditional/dependent optio
         "instructions": instructions,
         "input": [{"role":"user","content":[
             {"type":"input_text","text":user_text},
-            {"type":"input_file","filename":"selection_chart."+("pdf" if source_type=="pdf" else "xlsx"),"file_data":data_url,"detail":"high"}
+            {"type":"input_file","filename":"selection_chart."+("pdf" if source_type=="pdf" else "xlsx"),"file_data":data_url,"detail":"high" if source_type=="pdf" else "auto"}
         ]}],
         "max_output_tokens": 12000
     }
