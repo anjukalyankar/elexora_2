@@ -28,6 +28,14 @@ export default function AdminMlfb({ api }) {
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [learningDraft, setLearningDraft] = useState('');
+  const [learningVersionId, setLearningVersionId] = useState('');
+  const [learningVersions, setLearningVersions] = useState([]);
+  const [learningTestDescription, setLearningTestDescription] = useState('');
+  const [learningTestMsld, setLearningTestMsld] = useState('');
+  const [learningTestResult, setLearningTestResult] = useState(null);
+  const [learningBusy, setLearningBusy] = useState(false);
+
 
   const token = () => localStorage.getItem('elexora_token');
   const headers = () => ({ Authorization: 'Bearer ' + token() });
@@ -213,6 +221,84 @@ export default function AdminMlfb({ api }) {
     finally { setBuildingGeneric(false); }
   }
 
+  async function learningRequest(path, method='GET', body=null) {
+    const response = await fetch(api + '/api/admin/selection-chart-learning' + path, {
+      method, headers: { ...headers(), ...(body ? {'Content-Type':'application/json'} : {}) },
+      ...(body ? {body: JSON.stringify(body)} : {})
+    });
+    const data = await response.json();
+    if (!response.ok) throw Error(data.detail || 'Selection chart learning request failed.');
+    return data;
+  }
+
+  async function interpretSelectedChart() {
+    if (!selectedChart) { setError('Select a saved chart first.'); return; }
+    setLearningBusy(true); setError('');
+    try {
+      const data = await learningRequest('/' + selectedChart + '/interpret','POST',{notes:''});
+      setLearningDraft(JSON.stringify(data.draft,null,2));
+      setLearningVersionId(String(data.version.id));
+      await refreshLearningVersions();
+      setMessage('Interpretation draft created. Review against the original chart; nothing is production-approved.');
+    } catch(err) { setError(err.message); }
+    finally { setLearningBusy(false); }
+  }
+
+  async function refreshLearningVersions() {
+    if (!selectedChart) return;
+    try {
+      const data = await learningRequest('/' + selectedChart + '/versions');
+      setLearningVersions(data.versions || []);
+    } catch(err) { setError(err.message); }
+  }
+
+  async function saveLearningReview() {
+    if (!selectedChart) return;
+    let mapping;
+    try { mapping=JSON.parse(learningDraft); } catch { setError('Draft mapping must be valid JSON.'); return; }
+    setLearningBusy(true); setError('');
+    try {
+      const data=await learningRequest('/' + selectedChart + '/mapping','POST',{mapping,review_note:'Admin reviewed mapping'});
+      setLearningVersionId(String(data.version.id));
+      await refreshLearningVersions();
+      setMessage('Reviewed mapping saved as a new version. Mapping approval is still required.');
+    } catch(err) { setError(err.message); }
+    finally { setLearningBusy(false); }
+  }
+
+  async function approveLearningMapping() {
+    if (!learningVersionId) { setError('Select a mapping version first.'); return; }
+    setLearningBusy(true); setError('');
+    try {
+      await learningRequest('/versions/' + learningVersionId + '/approve-mapping','POST',{approval_note:'Admin mapping review completed'});
+      await refreshLearningVersions();
+      setMessage('Mapping approved for test bench only.');
+    } catch(err) { setError(err.message); }
+    finally { setLearningBusy(false); }
+  }
+
+  async function runLearningTest() {
+    if (!learningVersionId) { setError('Select a mapping version first.'); return; }
+    setLearningBusy(true); setError(''); setLearningTestResult(null);
+    try {
+      const data=await learningRequest('/versions/' + learningVersionId + '/test','POST',{description:learningTestDescription,msld_text:learningTestMsld});
+      setLearningTestResult(data.result);
+      await refreshLearningVersions();
+    } catch(err) { setError(err.message); }
+    finally { setLearningBusy(false); }
+  }
+
+  async function approveLearningProduction() {
+    if (!learningVersionId) { setError('Select a mapping version first.'); return; }
+    setLearningBusy(true); setError('');
+    try {
+      await learningRequest('/versions/' + learningVersionId + '/approve-production','POST',{approval_note:'Admin production approval'});
+      await refreshLearningVersions();
+      setMessage('Production mapping activated. This is stored separately from the BOM master CSV.');
+    } catch(err) { setError(err.message); }
+    finally { setLearningBusy(false); }
+  }
+
   const statusLabel = value => String(value || 'review_required').replaceAll('_', ' ');
 
   return <section className="card admin-mlfb-module">
@@ -312,8 +398,38 @@ export default function AdminMlfb({ api }) {
     </div>
 
     <div className="admin-mlfb-validator">
+    <div className="admin-mlfb-panel admin-mlfb-builder">
+      <h3>4. AI-assisted chart learning &amp; approval lifecycle</h3>
+      <p>Uses multimodal AI to interpret PDF chart pages together with extracted text, or structured sheet/row data for Excel workbooks. If AI is unavailable, ELEXORA creates a conservative text-assisted fallback draft and clearly marks the limitation. Every interpretation remains an unapproved draft; the admin must verify every position, code, footnote and dependency against the original chart.</p>
+      <div className="master-actions">
+        <button onClick={interpretSelectedChart} disabled={learningBusy || !selectedChart}>Create interpretation draft</button>
+        <button className="secondary-button" onClick={refreshLearningVersions} disabled={learningBusy || !selectedChart}>Refresh versions</button>
+      </div>
+      <label>Interpretation / mapping draft (JSON)
+        <textarea rows="12" value={learningDraft} onChange={event=>setLearningDraft(event.target.value)} placeholder="Create a draft from the selected chart, then review and complete its template and options."/>
+      </label>
+      <div className="master-actions">
+        <button onClick={saveLearningReview} disabled={learningBusy || !selectedChart}>Save reviewed mapping as version</button>
+        <button className="secondary-button" onClick={approveLearningMapping} disabled={learningBusy || !learningVersionId}>Approve mapping for testing</button>
+      </div>
+      <label>Mapping version
+        <select value={learningVersionId} onChange={event=>setLearningVersionId(event.target.value)}>
+          <option value="">Select version</option>
+          {learningVersions.map(v=><option key={v.id} value={v.id}>v{v.version} · {v.status} · tests {v.test_count}</option>)}
+        </select>
+      </label>
+      <label>Test equipment description<textarea rows="2" value={learningTestDescription} onChange={event=>setLearningTestDescription(event.target.value)} placeholder="Description…"/></label>
+      <label>Test MSLD text<textarea rows="4" value={learningTestMsld} onChange={event=>setLearningTestMsld(event.target.value)} placeholder="Paste technical values for test-bench validation…"/></label>
+      <div className="master-actions">
+        <button onClick={runLearningTest} disabled={learningBusy || !learningVersionId}>Run test bench</button>
+        <button onClick={approveLearningProduction} disabled={learningBusy || !learningVersionId}>Approve for production</button>
+      </div>
+      {learningTestResult && <div className="admin-mlfb-result"><strong>Test result: {statusLabel(learningTestResult.status)}</strong><p>MLFB: {learningTestResult.mlfb || 'Not generated'}</p><pre>{JSON.stringify(learningTestResult,null,2)}</pre></div>}
+      <p><strong>Safety:</strong> mapping approval and production approval are separate. A test must be run before production approval. Existing chart versions and test results remain auditable.</p>
+    </div>
+
     <div className="admin-mlfb-validator admin-mlfb-builder">
-      <h3>4. Configure a new chart family &amp; build MLFB</h3>
+      <h3>5. Configure a new chart family &amp; build MLFB</h3>
       <p>Select a saved chart, review its original source, then define the position mapping below. Each option maps an MSLD text pattern to the exact code printed in the manufacturer chart. OCR extraction is never treated as an approved rule automatically.</p>
       <label>Reviewed position mapping (JSON)
         <textarea rows="12" value={genericMapping} onChange={event => setGenericMapping(event.target.value)} placeholder='{"format_template":"FAMILY-{P1}-{P2}","positions":[{"position":1,"label":"Rated current","required":true,"options":[{"match":"\\b630\\s*A\\b","code":"A","meaning":"630 A"}]},{"position":2,"label":"Auxiliary supply","required":true,"options":[{"match":"110\\s*V\\s*DC","code":"D","meaning":"110 V DC"}]}]}'/>
@@ -333,7 +449,7 @@ export default function AdminMlfb({ api }) {
       </div>}
     </div>
 
-      <h3>5. MLFB validation</h3>
+      <h3>6. MLFB validation</h3>
       <p>Validation reuses the existing 7SJ66 decoder where applicable. Other families are checked against extracted chart candidates and receive a review warning when no exact candidate is found.</p>
       <div className="admin-mlfb-validate-row">
         <label>MLFB<input value={mlfb} onChange={event => setMlfb(event.target.value)} placeholder="Enter or select an MLFB"/></label>

@@ -4,6 +4,7 @@ Uses only a disposable CI database. Never point this test at production.
 """
 import os
 import unittest
+from unittest.mock import patch
 
 import fitz
 import psycopg
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
 from backend.app.admin_mlfb import build_admin_selection_chart_router
+from backend.app.selection_chart_learning import build_selection_chart_learning_router
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -27,6 +29,9 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
         cls.db = connect
         # This test is only run against the disposable GitHub Actions service DB.
         with cls.db() as conn:
+            conn.execute("DROP TABLE IF EXISTS selection_chart_active_mappings")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_tests")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_versions")
             conn.execute("DROP TABLE IF EXISTS admin_selection_chart_audit")
             conn.execute("DROP TABLE IF EXISTS admin_selection_charts")
             conn.commit()
@@ -38,6 +43,7 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(build_admin_selection_chart_router(cls.db, require_admin))
+        app.include_router(build_selection_chart_learning_router(cls.db, require_admin))
         cls.client_context = TestClient(app)
         cls.client = cls.client_context.__enter__()
 
@@ -45,6 +51,9 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
     def tearDownClass(cls):
         cls.client_context.__exit__(None, None, None)
         with cls.db() as conn:
+            conn.execute("DROP TABLE IF EXISTS selection_chart_active_mappings")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_tests")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_versions")
             conn.execute("DROP TABLE IF EXISTS admin_selection_chart_audit")
             conn.execute("DROP TABLE IF EXISTS admin_selection_charts")
             conn.commit()
@@ -105,6 +114,73 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
         self.assertEqual(audit["n"], 2)
         self.assertEqual(bytes(stored["source_file"]), payload)
         self.assertEqual(len(stored["source_sha256"]), 64)
+
+
+    def test_learning_interpret_review_test_and_production_approval_lifecycle(self):
+        headers = {"Authorization": "Bearer ci-admin-token"}
+        pdf = fitz.open()
+        page = pdf.new_page()
+        page.insert_text((60, 100), "Selection chart\nPosition 1: Rated current\n630 A")
+        payload = pdf.tobytes()
+        pdf.close()
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            uploaded = self.client.post(
+                "/api/admin/selection-charts",
+                data={"name": "CI learning chart", "equipment_family": "CI-TEST"},
+                files={"file": ("learning.pdf", payload, "application/pdf")},
+                headers=headers,
+            )
+            self.assertEqual(uploaded.status_code, 200, uploaded.text)
+            chart_id = uploaded.json()["chart"]["id"]
+            interpreted = self.client.post(
+                f"/api/admin/selection-chart-learning/{chart_id}/interpret",
+                json={"notes": "CI fallback test"},
+                headers=headers,
+            )
+            self.assertEqual(interpreted.status_code, 200, interpreted.text)
+            self.assertEqual(interpreted.json()["draft"]["interpretation"]["method"], "source_text_assisted")
+            self.assertIn("not production-approved", interpreted.json()["message"])
+
+        mapping = {
+            "format_template": "ZX-{P1}",
+            "positions": [{
+                "position": 1, "label": "Rated current", "required": True,
+                "options": [{"match": r"\b630\s*A\b", "code": "A", "meaning": "630 A"}],
+            }],
+        }
+        saved = self.client.post(
+            f"/api/admin/selection-chart-learning/{chart_id}/mapping",
+            json={"mapping": mapping, "review_note": "CI reviewed"},
+            headers=headers,
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        version_id = saved.json()["version"]["id"]
+        approved = self.client.post(
+            f"/api/admin/selection-chart-learning/versions/{version_id}/approve-mapping",
+            json={"approval_note": "CI mapping approval"},
+            headers=headers,
+        )
+        self.assertEqual(approved.status_code, 200, approved.text)
+        tested = self.client.post(
+            f"/api/admin/selection-chart-learning/versions/{version_id}/test",
+            json={"description": "630 A rated current", "msld_text": ""},
+            headers=headers,
+        )
+        self.assertEqual(tested.status_code, 200, tested.text)
+        self.assertEqual(tested.json()["result"]["mlfb"], "ZX-A")
+        production = self.client.post(
+            f"/api/admin/selection-chart-learning/versions/{version_id}/approve-production",
+            json={"approval_note": "CI production activation test"},
+            headers=headers,
+        )
+        self.assertEqual(production.status_code, 200, production.text)
+        self.assertTrue(production.json()["activated"])
+        active = self.client.get(
+            "/api/admin/selection-chart-learning/production/CI-TEST",
+            headers=headers,
+        )
+        self.assertEqual(active.status_code, 200, active.text)
+        self.assertEqual(active.json()["mapping"]["version_id"], version_id)
 
 
 if __name__ == "__main__":
