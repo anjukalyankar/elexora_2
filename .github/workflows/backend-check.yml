@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - fix/syntax-error-2666-clean
+      - feature/ai-selection-chart-interpreter
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -46,8 +48,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/elexora
         run: python -c "from backend.app.main import app; print('FastAPI import OK:', app.title)"
-      - name: Test admin MLFB helpers and 3AH3 position decoder
-        run: python -m unittest backend.tests.test_admin_mlfb -v
+      - name: Test AI chart interpreter (PDF, Excel, fallback and malformed output)
+        run: python -m unittest backend.tests.test_ai_chart_interpreter -v
+      - name: Test generic chart mapping and validation
+        run: python -m unittest backend.tests.test_generic_mlfb -v
+      - name: Test relay and 3AH3 decoders
+        run: python -m unittest backend.tests.test_relay_nlp backend.tests.test_vcb_chart_q10 backend.tests.test_admin_mlfb -v
       - name: Test selection-chart workflow against disposable PostgreSQL
         env:
           DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/elexora_ci
