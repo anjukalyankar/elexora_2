@@ -1,6 +1,6 @@
 import unittest
 
-from app.vcb_chart import build_3ah3_q10_spec
+from backend.app.vcb_chart import build_3ah3_q10_spec
 
 
 class TestQ10ThreeAH3ChartMapping(unittest.TestCase):
