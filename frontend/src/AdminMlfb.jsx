@@ -400,7 +400,7 @@ export default function AdminMlfb({ api }) {
     <div className="admin-mlfb-validator">
     <div className="admin-mlfb-panel admin-mlfb-builder">
       <h3>4. AI-assisted chart learning &amp; approval lifecycle</h3>
-      <p>Creates a source-grounded interpretation draft. Current draft extraction is text-assisted and deliberately conservative; it does not claim visual AI understanding. Admin must complete and verify the position codes against the original chart.</p>
+      <p>Uses multimodal AI to interpret PDF chart pages together with extracted text, or structured sheet/row data for Excel workbooks. If AI is unavailable, ELEXORA creates a conservative text-assisted fallback draft and clearly marks the limitation. Every interpretation remains an unapproved draft; the admin must verify every position, code, footnote and dependency against the original chart.</p>
       <div className="master-actions">
         <button onClick={interpretSelectedChart} disabled={learningBusy || !selectedChart}>Create interpretation draft</button>
         <button className="secondary-button" onClick={refreshLearningVersions} disabled={learningBusy || !selectedChart}>Refresh versions</button>
