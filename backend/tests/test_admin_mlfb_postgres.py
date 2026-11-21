@@ -29,6 +29,9 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
         cls.db = connect
         # This test is only run against the disposable GitHub Actions service DB.
         with cls.db() as conn:
+            conn.execute("DROP TABLE IF EXISTS selection_chart_active_mappings")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_tests")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_versions")
             conn.execute("DROP TABLE IF EXISTS admin_selection_chart_audit")
             conn.execute("DROP TABLE IF EXISTS admin_selection_charts")
             conn.commit()
@@ -48,6 +51,9 @@ class TestAdminSelectionChartPostgres(unittest.TestCase):
     def tearDownClass(cls):
         cls.client_context.__exit__(None, None, None)
         with cls.db() as conn:
+            conn.execute("DROP TABLE IF EXISTS selection_chart_active_mappings")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_tests")
+            conn.execute("DROP TABLE IF EXISTS selection_chart_mapping_versions")
             conn.execute("DROP TABLE IF EXISTS admin_selection_chart_audit")
             conn.execute("DROP TABLE IF EXISTS admin_selection_charts")
             conn.commit()
